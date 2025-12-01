@@ -186,7 +186,7 @@ def _(datetime, defaultdict, subprocess):
                 ["git", "blame", "--line-porcelain", commit_hash, "--", file_path],
                 repo_path,
             )
-        except RuntimeError:
+        except (RuntimeError, UnicodeDecodeError):
             # File might be binary or have other issues
             return {}
 
@@ -218,10 +218,13 @@ def _(datetime, defaultdict, subprocess):
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
         extensions: list[str] | None,
+        progress_bar=None,
     ) -> list[tuple[datetime, int, int]]:
         """Collect raw blame data from sampled commits."""
         raw_data = []
         for commit_hash, commit_date in sampled_commits:
+            if progress_bar:
+                progress_bar.update(title=f"Analyzing {commit_hash[:8]}...")
             for file_path in get_tracked_files(repo_path, commit_hash, extensions):
                 blame = get_blame_info(repo_path, commit_hash, file_path)
                 for year, count in blame.items():
@@ -286,9 +289,14 @@ def _(
 def _(collect_blame_data, extensions, mo, pl, repo_path, run_button, sampled):
     mo.stop(not run_button.value, None)
 
-    # Collect and process data
-    with mo.status.spinner("Analyzing commits (this may take a while)..."):
-        raw_data = collect_blame_data(repo_path, sampled, extensions)
+    # Collect and process data with progress bar
+    with mo.status.progress_bar(
+        total=len(sampled),
+        title="Analyzing commits",
+        show_rate=True,
+        show_eta=True,
+    ) as bar:
+        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar)
 
     # Single Polars pipeline
     df = (
@@ -336,27 +344,6 @@ def _(alt, df, mo, run_button):
     )
 
     chart
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md("""
-    ## How It Works
-
-    This notebook performs "code archaeology" by:
-
-    1. **Sampling commits**: Selects evenly-distributed commits from the repository history
-    2. **Running git blame**: For each sampled commit, runs `git blame` on all tracked files
-    3. **Tracking line ages**: Groups each line by the year it was originally committed
-    4. **Building time series**: Creates a Polars DataFrame showing how code from each year changes over time
-    5. **Visualization**: Generates a stacked area chart showing the composition of the codebase
-
-    The resulting chart reveals:
-    - How quickly old code gets replaced
-    - Whether the codebase is growing or shrinking
-    - The "half-life" of code in your project
-    """)
     return
 
 
