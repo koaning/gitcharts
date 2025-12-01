@@ -38,7 +38,7 @@ def _():
     from collections import defaultdict
     import polars as pl
     import altair as alt
-    return alt, datetime, defaultdict, pl, subprocess
+    return alt, datetime, pl, subprocess
 
 
 @app.cell
@@ -76,7 +76,7 @@ def _(mo):
 @app.cell
 def _(mo):
     file_extensions_input = mo.ui.text(
-        value=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb",
+        value=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md",
         label="File extensions to analyze (comma-separated, leave empty for all)",
         full_width=True,
     )
@@ -129,7 +129,9 @@ def _(subprocess):
 
 
 @app.cell
-def _(datetime, defaultdict, subprocess):
+def _(datetime, subprocess):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     def run_git_command(cmd: list[str], repo_path: str) -> str:
         """Run a git command and return stdout."""
         result = subprocess.run(
@@ -176,10 +178,10 @@ def _(datetime, defaultdict, subprocess):
 
     def get_blame_info(
         repo_path: str, commit_hash: str, file_path: str
-    ) -> dict[int, int]:
+    ) -> list[int]:
         """
         Get blame info for a file at a specific commit.
-        Returns dict mapping line year -> count of lines from that year.
+        Returns list of timestamps for each line.
         """
         try:
             output = run_git_command(
@@ -188,16 +190,15 @@ def _(datetime, defaultdict, subprocess):
             )
         except (RuntimeError, UnicodeDecodeError):
             # File might be binary or have other issues
-            return {}
+            return []
 
-        year_counts = defaultdict(int)
+        timestamps = []
         for line in output.split("\n"):
             if line.startswith("author-time "):
                 timestamp = int(line.split()[1])
-                year = datetime.fromtimestamp(timestamp).year
-                year_counts[year] += 1
+                timestamps.append(timestamp)
 
-        return dict(year_counts)
+        return timestamps
 
 
     def sample_commits(
@@ -214,21 +215,44 @@ def _(datetime, defaultdict, subprocess):
         return [commits[i] for i in indices]
 
 
+    def analyze_single_commit(
+        repo_path: str,
+        commit_hash: str,
+        commit_date: datetime,
+        extensions: list[str] | None,
+    ) -> list[tuple[datetime, int]]:
+        """Analyze a single commit - designed for parallel execution."""
+        results = []
+        for file_path in get_tracked_files(repo_path, commit_hash, extensions):
+            timestamps = get_blame_info(repo_path, commit_hash, file_path)
+            for ts in timestamps:
+                results.append((commit_date, ts))
+        return results
+
+
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
         extensions: list[str] | None,
         progress_bar=None,
-    ) -> list[tuple[datetime, int, int]]:
-        """Collect raw blame data from sampled commits."""
+        max_workers: int = 8,
+    ) -> list[tuple[datetime, int]]:
+        """Collect raw blame data from sampled commits in parallel."""
         raw_data = []
-        for commit_hash, commit_date in sampled_commits:
-            if progress_bar:
-                progress_bar.update(title=f"Analyzing {commit_hash[:8]}...")
-            for file_path in get_tracked_files(repo_path, commit_hash, extensions):
-                blame = get_blame_info(repo_path, commit_hash, file_path)
-                for year, count in blame.items():
-                    raw_data.append((commit_date, year, count))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    analyze_single_commit, str(repo_path), h, d, extensions
+                ): (h, d)
+                for h, d in sampled_commits
+            }
+            for future in as_completed(futures):
+                commit_hash, _ = futures[future]
+                if progress_bar:
+                    progress_bar.update(title=f"Analyzed {commit_hash[:8]}...")
+                raw_data.extend(future.result())
+
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
 
@@ -298,16 +322,9 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, run_button, sampled):
     ) as bar:
         raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar)
 
-    # Single Polars pipeline
-    df = (
-        pl.DataFrame(raw_data, schema=["commit_date", "year_added", "line_count"])
-        .group_by(["commit_date", "year_added"])
-        .agg(pl.col("line_count").sum())
-        .sort(["commit_date", "year_added"])
-    )
-
-    df
-    return (df,)
+    # Store raw data as DataFrame with timestamps
+    raw_df = pl.DataFrame(raw_data, schema=["commit_date", "line_timestamp"])
+    return (raw_df,)
 
 
 @app.cell
@@ -319,8 +336,52 @@ def _(mo):
 
 
 @app.cell
-def _(alt, df, mo, run_button):
+def _(mo):
+    granularity_select = mo.ui.dropdown(
+        options=["Year", "Quarter"],
+        value="Year",
+        label="Time granularity",
+    )
+    granularity_select
+    return (granularity_select,)
+
+
+@app.cell
+def _(datetime, granularity_select, mo, pl, raw_df, run_button):
+    mo.stop(not run_button.value or raw_df.is_empty(), None)
+
+    granularity = granularity_select.value
+
+    def get_period(ts: int, granularity: str) -> str:
+        dt = datetime.fromtimestamp(ts)
+        if granularity == "Year":
+            return str(dt.year)
+        else:  # Quarter
+            q = (dt.month - 1) // 3 + 1
+            return f"{dt.year}-Q{q}"
+
+    # Apply granularity and aggregate
+    df = (
+        raw_df
+        .with_columns(
+            pl.col("line_timestamp")
+            .map_elements(lambda ts: get_period(ts, granularity), return_dtype=pl.Utf8)
+            .alias("period")
+        )
+        .group_by(["commit_date", "period"])
+        .len()
+        .rename({"len": "line_count"})
+        .sort(["commit_date", "period"])
+    )
+    return (df,)
+
+
+@app.cell
+def _(alt, df, granularity_select, mo, run_button):
     mo.stop(not run_button.value or df.is_empty(), mo.md("*No data to visualize*"))
+
+    _granularity = granularity_select.value
+    color_title = "Year Added" if _granularity == "Year" else "Quarter Added"
 
     chart = (
         alt.Chart(df)
@@ -329,15 +390,15 @@ def _(alt, df, mo, run_button):
             x=alt.X("commit_date:T", title="Date"),
             y=alt.Y("line_count:Q", title="Lines of Code"),
             color=alt.Color(
-                "year_added:O",
+                "period:O",
                 scale=alt.Scale(scheme="viridis"),
-                title="Year Added",
+                title=color_title,
             ),
-            order=alt.Order("year_added:O"),
-            tooltip=["commit_date:T", "year_added:O", "line_count:Q"],
+            order=alt.Order("period:O"),
+            tooltip=["commit_date:T", "period:O", "line_count:Q"],
         )
         .properties(
-            title="Code Archaeology: Lines of Code by Year Added",
+            title="Code Archaeology: Lines of Code by Period Added",
             width=800,
             height=500,
         )
