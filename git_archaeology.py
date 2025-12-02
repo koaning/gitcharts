@@ -41,10 +41,7 @@ def _():
     from collections import defaultdict
     import polars as pl
     import altair as alt
-    from diskcache import Cache
-
-    cache = Cache("repo-cache")
-    return alt, cache, datetime, pl, subprocess
+    return alt, datetime, pl, subprocess
 
 
 @app.cell(hide_code=True)
@@ -90,12 +87,22 @@ def _(mo):
     return (file_extensions_input,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(mo):
-    mo.md("""
-    ## Git Analysis Functions
-    """)
-    return
+    granularity_select = mo.ui.dropdown(
+        options=["Year", "Quarter"],
+        value="Year",
+        label="Time granularity",
+    )
+    granularity_select
+    return (granularity_select,)
+
+
+@app.cell
+def _(mo):
+    show_versions = mo.ui.checkbox(label="show versions")
+    show_versions
+    return (show_versions,)
 
 
 @app.cell(hide_code=True)
@@ -135,7 +142,7 @@ def _(subprocess):
 
 
 @app.cell(hide_code=True)
-def _(cache, datetime, subprocess):
+def _(datetime, mo, subprocess):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import re
 
@@ -216,7 +223,7 @@ def _(cache, datetime, subprocess):
 
         return timestamps
 
-    @cache.memoize()
+    @mo.persistent_cache()
     def sample_commits(
         commits: list[tuple[str, datetime]], n_samples: int
     ) -> list[tuple[str, datetime]]:
@@ -230,7 +237,7 @@ def _(cache, datetime, subprocess):
             indices[-1] = len(commits) - 1
         return [commits[i] for i in indices]
 
-    @cache.memoize()
+    @mo.persistent_cache()
     def analyze_single_commit(
         repo_path: str,
         commit_hash: str,
@@ -257,7 +264,7 @@ def _(cache, datetime, subprocess):
                     results.append((commit_date, ts))
         return results
 
-    @cache.memoize()
+    @mo.persistent_cache()
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
@@ -283,14 +290,6 @@ def _(cache, datetime, subprocess):
 
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ## Run Analysis
-    """)
-    return
 
 
 @app.cell
@@ -349,17 +348,6 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
-    granularity_select = mo.ui.dropdown(
-        options=["Year", "Quarter"],
-        value="Year",
-        label="Time granularity",
-    )
-    granularity_select
-    return (granularity_select,)
-
-
-@app.cell
 def _(datetime, granularity_select, pl, raw_df):
     granularity = granularity_select.value
 
@@ -391,7 +379,10 @@ def _(datetime, granularity_select, pl, raw_df):
 def _(repo_url_input):
     import httpx
 
-    res = httpx.get(f"https://pypi.org/pypi/{repo_url_input.value.split('/')[-1]}/json").json()
+    parts = repo_url_input.value.split('/')
+    repo_name = parts[-2] if repo_url_input.value.endswith("/") else parts[-1]
+
+    res = httpx.get(f"https://pypi.org/pypi/{repo_name}/json").json()
     return (res,)
 
 
@@ -419,13 +410,6 @@ def _(alt, pl, res):
         text='version:N'
     )
     return date_lines, date_text
-
-
-@app.cell
-def _(mo):
-    show_versions = mo.ui.checkbox(label="show versions")
-    show_versions
-    return (show_versions,)
 
 
 @app.cell
