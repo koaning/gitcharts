@@ -4,6 +4,9 @@
 #     "marimo",
 #     "polars",
 #     "altair",
+#     "httpx==0.28.1",
+#     "anthropic==0.75.0",
+#     "diskcache==5.6.3",
 # ]
 # ///
 
@@ -19,7 +22,7 @@ def _():
     return (mo,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     # Git Code Archaeology
@@ -38,10 +41,13 @@ def _():
     from collections import defaultdict
     import polars as pl
     import altair as alt
-    return alt, datetime, pl, subprocess
+    from diskcache import Cache
+
+    cache = Cache("repo-cache")
+    return alt, cache, datetime, pl, subprocess
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ## Configuration
@@ -64,8 +70,8 @@ def _(mo):
 def _(mo):
     sample_count_slider = mo.ui.slider(
         start=10,
-        stop=100,
-        value=30,
+        stop=200,
+        value=100,
         step=5,
         label="Number of commits to sample",
     )
@@ -84,7 +90,7 @@ def _(mo):
     return (file_extensions_input,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ## Git Analysis Functions
@@ -92,7 +98,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(subprocess):
     from pathlib import Path
     import hashlib
@@ -128,9 +134,14 @@ def _(subprocess):
     return (clone_or_update_repo,)
 
 
-@app.cell
-def _(datetime, subprocess):
+@app.cell(hide_code=True)
+def _(cache, datetime, subprocess):
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    import re
+
+    # Pre-compile regex for timestamp extraction (used in get_blame_info)
+    # Format: hash (author timestamp tz line_num) content
+    TIMESTAMP_PATTERN = re.compile(r'\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)')
 
     def run_git_command(cmd: list[str], repo_path: str) -> str:
         """Run a git command and return stdout."""
@@ -182,10 +193,13 @@ def _(datetime, subprocess):
         """
         Get blame info for a file at a specific commit.
         Returns list of timestamps for each line.
+
+        Uses -t flag for raw timestamp output which is much faster than --line-porcelain.
+        Format: <hash> <orig_line> <final_line> <num_lines> (<author> <timestamp> <tz>) <content>
         """
         try:
             output = run_git_command(
-                ["git", "blame", "--line-porcelain", commit_hash, "--", file_path],
+                ["git", "blame", "-t", commit_hash, "--", file_path],
                 repo_path,
             )
         except (RuntimeError, UnicodeDecodeError):
@@ -194,13 +208,15 @@ def _(datetime, subprocess):
 
         timestamps = []
         for line in output.split("\n"):
-            if line.startswith("author-time "):
-                timestamp = int(line.split()[1])
-                timestamps.append(timestamp)
+            if not line:
+                continue
+            match = TIMESTAMP_PATTERN.search(line)
+            if match:
+                timestamps.append(int(match.group(1)))
 
         return timestamps
 
-
+    @cache.memoize()
     def sample_commits(
         commits: list[tuple[str, datetime]], n_samples: int
     ) -> list[tuple[str, datetime]]:
@@ -214,22 +230,34 @@ def _(datetime, subprocess):
             indices[-1] = len(commits) - 1
         return [commits[i] for i in indices]
 
-
+    @cache.memoize()
     def analyze_single_commit(
         repo_path: str,
         commit_hash: str,
         commit_date: datetime,
         extensions: list[str] | None,
+        file_workers: int = 4,
     ) -> list[tuple[datetime, int]]:
-        """Analyze a single commit - designed for parallel execution."""
+        """Analyze a single commit - designed for parallel execution.
+
+        Uses nested parallelization: commits in parallel, files within each commit also in parallel.
+        """
+        files = get_tracked_files(repo_path, commit_hash, extensions)
+
+        def blame_file(file_path: str) -> list[int]:
+            return get_blame_info(repo_path, commit_hash, file_path)
+
         results = []
-        for file_path in get_tracked_files(repo_path, commit_hash, extensions):
-            timestamps = get_blame_info(repo_path, commit_hash, file_path)
-            for ts in timestamps:
-                results.append((commit_date, ts))
+        # Parallelize file processing within each commit
+        with ThreadPoolExecutor(max_workers=file_workers) as file_executor:
+            file_futures = {file_executor.submit(blame_file, f): f for f in files}
+            for future in as_completed(file_futures):
+                timestamps = future.result()
+                for ts in timestamps:
+                    results.append((commit_date, ts))
         return results
 
-
+    @cache.memoize()
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
@@ -257,19 +285,12 @@ def _(datetime, subprocess):
     return collect_blame_data, get_commit_list, sample_commits
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ## Run Analysis
     """)
     return
-
-
-@app.cell
-def _(mo):
-    run_button = mo.ui.run_button(label="Analyze Repository")
-    run_button
-    return (run_button,)
 
 
 @app.cell
@@ -279,15 +300,9 @@ def _(
     get_commit_list,
     mo,
     repo_url_input,
-    run_button,
     sample_commits,
     sample_count_slider,
 ):
-    mo.stop(
-        not run_button.value,
-        mo.md("*Click 'Analyze Repository' to start the analysis*"),
-    )
-
     # Clone or use cached repo
     repo_url = repo_url_input.value.strip()
     with mo.status.spinner(f"Cloning/updating repository..."):
@@ -310,9 +325,7 @@ def _(
 
 
 @app.cell
-def _(collect_blame_data, extensions, mo, pl, repo_path, run_button, sampled):
-    mo.stop(not run_button.value, None)
-
+def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
     # Collect and process data with progress bar
     with mo.status.progress_bar(
         total=len(sampled),
@@ -327,7 +340,7 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, run_button, sampled):
     return (raw_df,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ## Visualization
@@ -347,9 +360,7 @@ def _(mo):
 
 
 @app.cell
-def _(datetime, granularity_select, mo, pl, raw_df, run_button):
-    mo.stop(not run_button.value or raw_df.is_empty(), None)
-
+def _(datetime, granularity_select, pl, raw_df):
     granularity = granularity_select.value
 
     def get_period(ts: int, granularity: str) -> str:
@@ -377,9 +388,48 @@ def _(datetime, granularity_select, mo, pl, raw_df, run_button):
 
 
 @app.cell
-def _(alt, df, granularity_select, mo, run_button):
-    mo.stop(not run_button.value or df.is_empty(), mo.md("*No data to visualize*"))
+def _(repo_url_input):
+    import httpx
 
+    res = httpx.get(f"https://pypi.org/pypi/{repo_url_input.value.split('/')[-1]}/json").json()
+    return (res,)
+
+
+@app.cell
+def _(alt, pl, res):
+    df_versions = pl.DataFrame(
+        [{"version": key, "datetime": value[0]["upload_time"]} for key, value in res["releases"].items() if key.endswith(".0")]
+    ).with_columns(datetime=pl.col("datetime").str.to_datetime())
+
+    base_chart = alt.Chart(df_versions)
+
+    date_lines = base_chart.mark_rule(strokeDash=[5, 5]).encode(
+        x=alt.X('datetime:T', title='Date'),
+        tooltip=['version:N', 'datetime:T']
+    )
+
+    date_text = base_chart.mark_text(
+        angle=270,
+        align='left',
+        dx=15,
+        dy=0
+    ).encode(
+        x='datetime:T',
+        y=alt.value(10),
+        text='version:N'
+    )
+    return date_lines, date_text
+
+
+@app.cell
+def _(mo):
+    show_versions = mo.ui.checkbox(label="show versions")
+    show_versions
+    return (show_versions,)
+
+
+@app.cell
+def _(alt, date_lines, date_text, df, granularity_select, show_versions):
     _granularity = granularity_select.value
     color_title = "Year Added" if _granularity == "Year" else "Quarter Added"
 
@@ -404,7 +454,15 @@ def _(alt, df, granularity_select, mo, run_button):
         )
     )
 
-    chart
+    out = chart
+    if show_versions.value: 
+         out += date_lines + date_text
+    out
+    return
+
+
+@app.cell
+def _():
     return
 
 
