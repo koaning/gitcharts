@@ -2,8 +2,8 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "marimo",
-#     "polars",
-#     "altair",
+#     "polars==1.35.2",
+#     "altair==6.0.0",
 #     "httpx==0.28.1",
 #     "anthropic==0.75.0",
 #     "diskcache==5.6.3",
@@ -142,7 +142,7 @@ def _(subprocess):
 
 
 @app.cell(hide_code=True)
-def _(datetime, mo, subprocess):
+def _(datetime, subprocess):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import re
 
@@ -223,7 +223,7 @@ def _(datetime, mo, subprocess):
 
         return timestamps
 
-    @mo.persistent_cache()
+
     def sample_commits(
         commits: list[tuple[str, datetime]], n_samples: int
     ) -> list[tuple[str, datetime]]:
@@ -237,7 +237,7 @@ def _(datetime, mo, subprocess):
             indices[-1] = len(commits) - 1
         return [commits[i] for i in indices]
 
-    @mo.persistent_cache()
+
     def analyze_single_commit(
         repo_path: str,
         commit_hash: str,
@@ -264,7 +264,7 @@ def _(datetime, mo, subprocess):
                     results.append((commit_date, ts))
         return results
 
-    @mo.persistent_cache()
+
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
