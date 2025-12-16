@@ -12,7 +12,7 @@
 
 import marimo
 
-__generated_with = "0.18.1"
+__generated_with = "0.18.4"
 app = marimo.App(width="medium")
 
 
@@ -41,7 +41,10 @@ def _():
     from collections import defaultdict
     import polars as pl
     import altair as alt
-    return alt, datetime, pl, subprocess
+    from diskcache import Cache 
+
+    cache = Cache("git-research")
+    return alt, cache, datetime, pl, subprocess
 
 
 @app.cell(hide_code=True)
@@ -142,7 +145,7 @@ def _(subprocess):
 
 
 @app.cell(hide_code=True)
-def _(datetime, subprocess):
+def _(cache, datetime, subprocess):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import re
 
@@ -162,7 +165,7 @@ def _(datetime, subprocess):
             raise RuntimeError(f"Git command failed: {result.stderr}")
         return result.stdout
 
-
+    @cache.memoize()
     def get_commit_list(repo_path: str) -> list[tuple[str, datetime]]:
         """Get list of all commits with their dates."""
         output = run_git_command(
@@ -223,7 +226,7 @@ def _(datetime, subprocess):
 
         return timestamps
 
-
+    @cache.memoize()
     def sample_commits(
         commits: list[tuple[str, datetime]], n_samples: int
     ) -> list[tuple[str, datetime]]:
@@ -265,6 +268,7 @@ def _(datetime, subprocess):
         return results
 
 
+    @cache.memoize()
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
@@ -414,8 +418,7 @@ def _(alt, pl, res):
 
 @app.cell
 def _(alt, date_lines, date_text, df, granularity_select, show_versions):
-    _granularity = granularity_select.value
-    color_title = "Year Added" if _granularity == "Year" else "Quarter Added"
+    color_title = "Year Added" if granularity_select.value == "Year" else "Quarter Added"
 
     chart = (
         alt.Chart(df)
