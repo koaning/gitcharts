@@ -1,0 +1,29 @@
+/* Minimal custom styles on top of Bootstrap */
+
+#chart-container {
+    min-height: 500px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#chart-container.loading {
+    color: #6c757d;
+}
+
+#chart-container.error {
+    flex-direction: column;
+    text-align: left;
+    align-items: flex-start;
+}
+
+#chart-container.error code {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    display: block;
+    margin-top: 0.5rem;
+    overflow-x: auto;
+    font-size: 0.875rem;
+}
