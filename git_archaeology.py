@@ -59,7 +59,7 @@ def _(mo):
 @app.cell
 def _(mo):
     repo_url_input = mo.ui.text(
-        value="https://github.com/django/django",
+        value="https://github.com/koaning/scikit-lego",
         label="Repository URL (HTTPS)",
         full_width=True,
     )
