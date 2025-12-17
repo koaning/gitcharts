@@ -1,0 +1,1401 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.1.0.json",
+  "config": {
+    "view": {
+      "continuousHeight": 300,
+      "continuousWidth": 300
+    }
+  },
+  "datasets": {
+    "data-2edf444d89f92a777d673ab1b3251585": [
+      {
+        "datetime": "2022-01-27T20:13:01",
+        "version": "0.0.0"
+      },
+      {
+        "datetime": "2023-08-14T19:41:02",
+        "version": "0.1.0"
+      },
+      {
+        "datetime": "2024-12-13T02:29:31",
+        "version": "0.10.0"
+      },
+      {
+        "datetime": "2025-02-04T20:11:58",
+        "version": "0.11.0"
+      },
+      {
+        "datetime": "2025-03-31T13:44:19",
+        "version": "0.12.0"
+      },
+      {
+        "datetime": "2025-04-18T20:43:38",
+        "version": "0.13.0"
+      },
+      {
+        "datetime": "2025-06-18T15:16:00",
+        "version": "0.14.0"
+      },
+      {
+        "datetime": "2025-08-21T21:06:56",
+        "version": "0.15.0"
+      },
+      {
+        "datetime": "2025-09-18T21:20:37",
+        "version": "0.16.0"
+      },
+      {
+        "datetime": "2025-10-15T16:41:29",
+        "version": "0.17.0"
+      },
+      {
+        "datetime": "2025-11-20T20:51:27",
+        "version": "0.18.0"
+      },
+      {
+        "datetime": "2024-02-01T23:28:47",
+        "version": "0.2.0"
+      },
+      {
+        "datetime": "2024-03-06T04:45:46",
+        "version": "0.3.0"
+      },
+      {
+        "datetime": "2024-04-15T19:11:06",
+        "version": "0.4.0"
+      },
+      {
+        "datetime": "2024-05-07T20:03:07",
+        "version": "0.5.0"
+      },
+      {
+        "datetime": "2024-05-17T05:18:34",
+        "version": "0.6.0"
+      },
+      {
+        "datetime": "2024-07-03T20:47:41",
+        "version": "0.7.0"
+      },
+      {
+        "datetime": "2024-08-16T15:56:25",
+        "version": "0.8.0"
+      },
+      {
+        "datetime": "2024-10-03T19:06:08",
+        "version": "0.9.0"
+      }
+    ],
+    "data-ae232bc6d20c1538fc0e701d950f81f0": [
+      {
+        "commit_date": "2023-08-14T20:52:29",
+        "line_count": 30131,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-09-05T18:58:55",
+        "line_count": 32265,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-09-18T07:27:03",
+        "line_count": 35406,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-09-27T00:36:20",
+        "line_count": 38536,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-10-12T18:57:18",
+        "line_count": 43282,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-10-23T22:45:39",
+        "line_count": 45806,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-11-02T16:46:46",
+        "line_count": 49732,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-11-13T22:23:44",
+        "line_count": 51880,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-11-22T20:35:58",
+        "line_count": 54597,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2023-12-05T19:40:50",
+        "line_count": 57660,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-01-03T02:31:56",
+        "line_count": 58163,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-01-03T02:31:56",
+        "line_count": 135,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-01-12T02:32:43",
+        "line_count": 57491,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-01-12T02:32:43",
+        "line_count": 2359,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-01-23T18:38:41",
+        "line_count": 56247,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-01-23T18:38:41",
+        "line_count": 5651,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-01-30T18:32:43",
+        "line_count": 53652,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-01-30T18:32:43",
+        "line_count": 11540,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-02-09T19:58:59",
+        "line_count": 52433,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-02-09T19:58:59",
+        "line_count": 18292,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-02-28T13:31:28",
+        "line_count": 51817,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-02-28T13:31:28",
+        "line_count": 24206,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-03-07T01:16:10",
+        "line_count": 51648,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-03-07T01:16:10",
+        "line_count": 27018,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-03-27T22:22:23",
+        "line_count": 51311,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-03-27T22:22:23",
+        "line_count": 30181,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-04-05T23:01:46",
+        "line_count": 51172,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-04-05T23:01:46",
+        "line_count": 32232,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-04-17T14:27:22",
+        "line_count": 50186,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-04-17T14:27:22",
+        "line_count": 40180,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-04-24T21:42:38",
+        "line_count": 49593,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-04-24T21:42:38",
+        "line_count": 46256,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-05-01T03:43:39",
+        "line_count": 49482,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-05-01T03:43:39",
+        "line_count": 48636,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-05-09T18:03:34",
+        "line_count": 48362,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-05-09T18:03:34",
+        "line_count": 54267,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-05-20T22:47:48",
+        "line_count": 47842,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-05-20T22:47:48",
+        "line_count": 59023,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-05-26T08:34:00",
+        "line_count": 47820,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-05-26T08:34:00",
+        "line_count": 60785,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-06-06T18:35:50",
+        "line_count": 47779,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-06-06T18:35:50",
+        "line_count": 63985,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-06-18T23:52:44",
+        "line_count": 46893,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-06-18T23:52:44",
+        "line_count": 71682,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-07-03T01:47:52",
+        "line_count": 46727,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-07-03T01:47:52",
+        "line_count": 76157,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-07-16T00:09:24",
+        "line_count": 46593,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-07-16T00:09:24",
+        "line_count": 78562,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-07-24T03:37:19",
+        "line_count": 46481,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-07-24T03:37:19",
+        "line_count": 82744,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-08-02T20:21:00",
+        "line_count": 46394,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-08-02T20:21:00",
+        "line_count": 87026,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-08-14T22:49:29",
+        "line_count": 46200,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-08-14T22:49:29",
+        "line_count": 89405,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-08-23T15:21:09",
+        "line_count": 46132,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-08-23T15:21:09",
+        "line_count": 93440,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-08-30T04:56:28",
+        "line_count": 45751,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-08-30T04:56:28",
+        "line_count": 98527,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-09-05T18:59:39",
+        "line_count": 45614,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-09-05T18:59:39",
+        "line_count": 101797,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-09-16T00:44:19",
+        "line_count": 45450,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-09-16T00:44:19",
+        "line_count": 107250,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-09-23T22:18:14",
+        "line_count": 45362,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-09-23T22:18:14",
+        "line_count": 112212,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-10-02T13:12:39",
+        "line_count": 44737,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-10-02T13:12:39",
+        "line_count": 121752,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-10-08T14:53:04",
+        "line_count": 44653,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-10-08T14:53:04",
+        "line_count": 125200,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-10-12T01:51:38",
+        "line_count": 44560,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-10-12T01:51:38",
+        "line_count": 130283,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-10-22T02:33:38",
+        "line_count": 44526,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-10-22T02:33:38",
+        "line_count": 132074,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-10-31T01:32:08",
+        "line_count": 44150,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-10-31T01:32:08",
+        "line_count": 134974,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-11-09T21:40:59",
+        "line_count": 43974,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-11-09T21:40:59",
+        "line_count": 137521,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-11-20T17:07:54",
+        "line_count": 43851,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-11-20T17:07:54",
+        "line_count": 139398,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-11-26T22:28:34",
+        "line_count": 43743,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-11-26T22:28:34",
+        "line_count": 141403,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-12-04T05:38:33",
+        "line_count": 43645,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-12-04T05:38:33",
+        "line_count": 143665,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-12-12T19:31:35",
+        "line_count": 43485,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-12-12T19:31:35",
+        "line_count": 149187,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-12-18T23:56:03",
+        "line_count": 41803,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-12-18T23:56:03",
+        "line_count": 152383,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2024-12-23T21:25:16",
+        "line_count": 41053,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2024-12-23T21:25:16",
+        "line_count": 156872,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-01-08T02:41:06",
+        "line_count": 40975,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-01-08T02:41:06",
+        "line_count": 157133,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-01-08T02:41:06",
+        "line_count": 2406,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-01-14T16:33:11",
+        "line_count": 40942,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-01-14T16:33:11",
+        "line_count": 156604,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-01-14T16:33:11",
+        "line_count": 4106,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-01-18T20:41:57",
+        "line_count": 40820,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-01-18T20:41:57",
+        "line_count": 156029,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-01-18T20:41:57",
+        "line_count": 7501,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-01-25T01:12:25",
+        "line_count": 40769,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-01-25T01:12:25",
+        "line_count": 155529,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-01-25T01:12:25",
+        "line_count": 10858,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-02-03T03:37:36",
+        "line_count": 40726,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-02-03T03:37:36",
+        "line_count": 154774,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-02-03T03:37:36",
+        "line_count": 17377,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-02-11T04:00:29",
+        "line_count": 40697,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-02-11T04:00:29",
+        "line_count": 154572,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-02-11T04:00:29",
+        "line_count": 20720,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-02-18T15:42:28",
+        "line_count": 40624,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-02-18T15:42:28",
+        "line_count": 154065,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-02-18T15:42:28",
+        "line_count": 28731,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-02-25T00:00:20",
+        "line_count": 40503,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-02-25T00:00:20",
+        "line_count": 153439,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-02-25T00:00:20",
+        "line_count": 34993,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-03-04T00:56:05",
+        "line_count": 40401,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-03-04T00:56:05",
+        "line_count": 152361,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-03-04T00:56:05",
+        "line_count": 39984,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-03-08T23:14:51",
+        "line_count": 40238,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-03-08T23:14:51",
+        "line_count": 151880,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-03-08T23:14:51",
+        "line_count": 45778,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-03-14T21:39:33",
+        "line_count": 40158,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-03-14T21:39:33",
+        "line_count": 151053,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-03-14T21:39:33",
+        "line_count": 53528,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-03-23T04:23:09",
+        "line_count": 40122,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-03-23T04:23:09",
+        "line_count": 150315,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-03-23T04:23:09",
+        "line_count": 57688,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-03-27T14:01:08",
+        "line_count": 40090,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-03-27T14:01:08",
+        "line_count": 150032,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-03-27T14:01:08",
+        "line_count": 61297,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-04-02T18:02:57",
+        "line_count": 40068,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-04-02T18:02:57",
+        "line_count": 149502,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-04-02T18:02:57",
+        "line_count": 66594,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-04-09T07:40:05",
+        "line_count": 39892,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-04-09T07:40:05",
+        "line_count": 148916,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-04-09T07:40:05",
+        "line_count": 70389,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-04-14T18:12:18",
+        "line_count": 39761,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-04-14T18:12:18",
+        "line_count": 148382,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-04-14T18:12:18",
+        "line_count": 75682,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-04-19T08:42:03",
+        "line_count": 39475,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-04-19T08:42:03",
+        "line_count": 147950,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-04-19T08:42:03",
+        "line_count": 78853,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-04-28T15:49:37",
+        "line_count": 39429,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-04-28T15:49:37",
+        "line_count": 147828,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-04-28T15:49:37",
+        "line_count": 81732,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-05-01T20:13:53",
+        "line_count": 39388,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-05-01T20:13:53",
+        "line_count": 147526,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-05-01T20:13:53",
+        "line_count": 87136,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-05-08T16:00:25",
+        "line_count": 39371,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-05-08T16:00:25",
+        "line_count": 146870,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-05-08T16:00:25",
+        "line_count": 91791,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-05-13T23:04:00",
+        "line_count": 39292,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-05-13T23:04:00",
+        "line_count": 146506,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-05-13T23:04:00",
+        "line_count": 95889,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-05-20T18:42:27",
+        "line_count": 39288,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-05-20T18:42:27",
+        "line_count": 146292,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-05-20T18:42:27",
+        "line_count": 98640,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-05-24T02:56:47",
+        "line_count": 38748,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-05-24T02:56:47",
+        "line_count": 145581,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-05-24T02:56:47",
+        "line_count": 103889,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-05-31T20:43:26",
+        "line_count": 38573,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-05-31T20:43:26",
+        "line_count": 144865,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-05-31T20:43:26",
+        "line_count": 108736,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-06-10T18:44:37",
+        "line_count": 38515,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-06-10T18:44:37",
+        "line_count": 144347,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-06-10T18:44:37",
+        "line_count": 112916,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-06-18T00:02:49",
+        "line_count": 38302,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-06-18T00:02:49",
+        "line_count": 143639,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-06-18T00:02:49",
+        "line_count": 117399,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-06-24T07:36:05",
+        "line_count": 38285,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-06-24T07:36:05",
+        "line_count": 143538,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-06-24T07:36:05",
+        "line_count": 124317,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-07-01T19:55:30",
+        "line_count": 38265,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-07-01T19:55:30",
+        "line_count": 143490,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-07-01T19:55:30",
+        "line_count": 125404,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-07-09T19:40:47",
+        "line_count": 38165,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-07-09T19:40:47",
+        "line_count": 143137,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-07-09T19:40:47",
+        "line_count": 130057,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-07-17T20:28:44",
+        "line_count": 38125,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-07-17T20:28:44",
+        "line_count": 142910,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-07-17T20:28:44",
+        "line_count": 139602,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-07-25T18:35:48",
+        "line_count": 38109,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-07-25T18:35:48",
+        "line_count": 142606,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-07-25T18:35:48",
+        "line_count": 146554,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-07-30T06:18:55",
+        "line_count": 38102,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-07-30T06:18:55",
+        "line_count": 142548,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-07-30T06:18:55",
+        "line_count": 149266,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-08-05T21:30:19",
+        "line_count": 38092,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-08-05T21:30:19",
+        "line_count": 142450,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-08-05T21:30:19",
+        "line_count": 152590,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-08-12T20:15:34",
+        "line_count": 38021,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-08-12T20:15:34",
+        "line_count": 142029,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-08-12T20:15:34",
+        "line_count": 161469,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-08-21T16:49:10",
+        "line_count": 37962,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-08-21T16:49:10",
+        "line_count": 141848,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-08-21T16:49:10",
+        "line_count": 165348,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-08-27T07:40:40",
+        "line_count": 37933,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-08-27T07:40:40",
+        "line_count": 141428,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-08-27T07:40:40",
+        "line_count": 169223,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-09-06T16:22:45",
+        "line_count": 37783,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-09-06T16:22:45",
+        "line_count": 139842,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-09-06T16:22:45",
+        "line_count": 176659,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-09-16T01:27:06",
+        "line_count": 37775,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-09-16T01:27:06",
+        "line_count": 139537,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-09-16T01:27:06",
+        "line_count": 184358,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-09-19T19:38:34",
+        "line_count": 36755,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-09-19T19:38:34",
+        "line_count": 136876,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-09-19T19:38:34",
+        "line_count": 199979,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-09-25T04:03:57",
+        "line_count": 36695,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-09-25T04:03:57",
+        "line_count": 136606,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-09-25T04:03:57",
+        "line_count": 206889,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-09-29T20:22:53",
+        "line_count": 36564,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-09-29T20:22:53",
+        "line_count": 136269,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-09-29T20:22:53",
+        "line_count": 212657,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-10-02T21:56:45",
+        "line_count": 36517,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-10-02T21:56:45",
+        "line_count": 135833,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-10-02T21:56:45",
+        "line_count": 217281,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-10-13T15:03:38",
+        "line_count": 36511,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-10-13T15:03:38",
+        "line_count": 135639,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-10-13T15:03:38",
+        "line_count": 222767,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-10-20T15:04:25",
+        "line_count": 36464,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-10-20T15:04:25",
+        "line_count": 134515,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-10-20T15:04:25",
+        "line_count": 228279,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-10-24T05:59:10",
+        "line_count": 36448,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-10-24T05:59:10",
+        "line_count": 134439,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-10-24T05:59:10",
+        "line_count": 233173,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-10-29T16:03:48",
+        "line_count": 36439,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-10-29T16:03:48",
+        "line_count": 134369,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-10-29T16:03:48",
+        "line_count": 237160,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-11-04T21:11:27",
+        "line_count": 35833,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-11-04T21:11:27",
+        "line_count": 133276,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-11-04T21:11:27",
+        "line_count": 244206,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-11-14T00:23:09",
+        "line_count": 35806,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-11-14T00:23:09",
+        "line_count": 132900,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-11-14T00:23:09",
+        "line_count": 250733,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-11-21T22:13:24",
+        "line_count": 35764,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-11-21T22:13:24",
+        "line_count": 132735,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-11-21T22:13:24",
+        "line_count": 254880,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-12-01T16:57:04",
+        "line_count": 35744,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-12-01T16:57:04",
+        "line_count": 132609,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-12-01T16:57:04",
+        "line_count": 259054,
+        "period": "2025"
+      },
+      {
+        "commit_date": "2025-12-16T05:36:19",
+        "line_count": 35673,
+        "period": "2023"
+      },
+      {
+        "commit_date": "2025-12-16T05:36:19",
+        "line_count": 132409,
+        "period": "2024"
+      },
+      {
+        "commit_date": "2025-12-16T05:36:19",
+        "line_count": 269397,
+        "period": "2025"
+      }
+    ]
+  },
+  "height": 500,
+  "layer": [
+    {
+      "data": {
+        "name": "data-ae232bc6d20c1538fc0e701d950f81f0"
+      },
+      "encoding": {
+        "color": {
+          "field": "period",
+          "scale": {
+            "scheme": "viridis"
+          },
+          "title": "Year Added",
+          "type": "ordinal"
+        },
+        "order": {
+          "field": "period",
+          "type": "ordinal"
+        },
+        "tooltip": [
+          {
+            "field": "commit_date",
+            "type": "temporal"
+          },
+          {
+            "field": "period",
+            "type": "ordinal"
+          },
+          {
+            "field": "line_count",
+            "type": "quantitative"
+          }
+        ],
+        "x": {
+          "field": "commit_date",
+          "title": "Date",
+          "type": "temporal"
+        },
+        "y": {
+          "field": "line_count",
+          "title": "Lines of Code",
+          "type": "quantitative"
+        }
+      },
+      "mark": {
+        "type": "area"
+      },
+      "title": "Code Archaeology: Lines of Code by Period Added"
+    },
+    {
+      "data": {
+        "name": "data-2edf444d89f92a777d673ab1b3251585"
+      },
+      "encoding": {
+        "tooltip": [
+          {
+            "field": "version",
+            "type": "nominal"
+          },
+          {
+            "field": "datetime",
+            "type": "temporal"
+          }
+        ],
+        "x": {
+          "field": "datetime",
+          "title": "Date",
+          "type": "temporal"
+        }
+      },
+      "mark": {
+        "strokeDash": [
+          5,
+          5
+        ],
+        "type": "rule"
+      }
+    },
+    {
+      "data": {
+        "name": "data-2edf444d89f92a777d673ab1b3251585"
+      },
+      "encoding": {
+        "text": {
+          "field": "version",
+          "type": "nominal"
+        },
+        "x": {
+          "field": "datetime",
+          "type": "temporal"
+        },
+        "y": {
+          "value": 10
+        }
+      },
+      "mark": {
+        "align": "left",
+        "angle": 270,
+        "dx": 15,
+        "dy": 0,
+        "type": "text"
+      }
+    }
+  ],
+  "width": 800
+}

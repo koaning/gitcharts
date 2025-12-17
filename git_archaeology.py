@@ -7,6 +7,7 @@
 #     "httpx==0.28.1",
 #     "anthropic==0.75.0",
 #     "diskcache==5.6.3",
+#     "typer==0.20.0",
 # ]
 # ///
 
@@ -41,7 +42,7 @@ def _():
     from collections import defaultdict
     import polars as pl
     import altair as alt
-    from diskcache import Cache 
+    from diskcache import Cache
 
     cache = Cache("git-research")
     return alt, cache, datetime, pl, subprocess
@@ -58,7 +59,7 @@ def _(mo):
 @app.cell
 def _(mo):
     repo_url_input = mo.ui.text(
-        value="https://github.com/koaning/scikit-lego",
+        value="https://github.com/django/django",
         label="Repository URL (HTTPS)",
         full_width=True,
     )
@@ -108,6 +109,17 @@ def _(mo):
     return (show_versions,)
 
 
+@app.cell
+def _(mo):
+    cli_args = mo.cli_args()
+
+    if mo.app_meta().mode == "script": 
+        if len(cli_args) == 0:
+            print("You need to pass --repo, and maybe --samples, explicitly.")
+            exit()
+    return (cli_args,)
+
+
 @app.cell(hide_code=True)
 def _(subprocess):
     from pathlib import Path
@@ -115,11 +127,13 @@ def _(subprocess):
 
     DOWNLOADS_DIR = Path(".downloads")
 
+
     def get_cached_repo_path(repo_url: str) -> Path:
         """Get the cached path for a repo URL, using a hash for uniqueness."""
         repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
         url_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
         return DOWNLOADS_DIR / f"{repo_name}-{url_hash}"
+
 
     def clone_or_update_repo(repo_url: str) -> Path:
         """Clone repo if not cached, otherwise return cached path."""
@@ -141,7 +155,7 @@ def _(subprocess):
                 check=True,
             )
         return repo_path
-    return (clone_or_update_repo,)
+    return Path, clone_or_update_repo
 
 
 @app.cell(hide_code=True)
@@ -151,7 +165,8 @@ def _(cache, datetime, subprocess):
 
     # Pre-compile regex for timestamp extraction (used in get_blame_info)
     # Format: hash (author timestamp tz line_num) content
-    TIMESTAMP_PATTERN = re.compile(r'\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)')
+    TIMESTAMP_PATTERN = re.compile(r"\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)")
+
 
     def run_git_command(cmd: list[str], repo_path: str) -> str:
         """Run a git command and return stdout."""
@@ -164,6 +179,7 @@ def _(cache, datetime, subprocess):
         if result.returncode != 0:
             raise RuntimeError(f"Git command failed: {result.stderr}")
         return result.stdout
+
 
     @cache.memoize()
     def get_commit_list(repo_path: str) -> list[tuple[str, datetime]]:
@@ -197,9 +213,7 @@ def _(cache, datetime, subprocess):
         return [f for f in files if f]
 
 
-    def get_blame_info(
-        repo_path: str, commit_hash: str, file_path: str
-    ) -> list[int]:
+    def get_blame_info(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
         """
         Get blame info for a file at a specific commit.
         Returns list of timestamps for each line.
@@ -225,6 +239,7 @@ def _(cache, datetime, subprocess):
                 timestamps.append(int(match.group(1)))
 
         return timestamps
+
 
     @cache.memoize()
     def sample_commits(
@@ -268,22 +283,20 @@ def _(cache, datetime, subprocess):
         return results
 
 
-    @cache.memoize()
+    @cache.memoize(ignore=["progress_bar"])
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
         extensions: list[str] | None,
         progress_bar=None,
-        max_workers: int = 8,
+        max_workers: int = 12,
     ) -> list[tuple[datetime, int]]:
         """Collect raw blame data from sampled commits in parallel."""
         raw_data = []
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(
-                    analyze_single_commit, str(repo_path), h, d, extensions
-                ): (h, d)
+                executor.submit(analyze_single_commit, str(repo_path), h, d, extensions): (h, d)
                 for h, d in sampled_commits
             }
             for future in as_completed(futures):
@@ -298,6 +311,7 @@ def _(cache, datetime, subprocess):
 
 @app.cell
 def _(
+    cli_args,
     clone_or_update_repo,
     file_extensions_input,
     get_commit_list,
@@ -307,16 +321,14 @@ def _(
     sample_count_slider,
 ):
     # Clone or use cached repo
-    repo_url = repo_url_input.value.strip()
+    repo_url = cli_args.get("repo") or repo_url_input.value.strip()
     with mo.status.spinner(f"Cloning/updating repository..."):
         repo_path = clone_or_update_repo(repo_url)
 
     # Parse configuration
-    n_samples = sample_count_slider.value
+    n_samples = cli_args.get("samples") or sample_count_slider.value
     extensions_str = file_extensions_input.value.strip()
-    extensions = (
-        [ext.strip() for ext in extensions_str.split(",")] if extensions_str else None
-    )
+    extensions = [ext.strip() for ext in extensions_str.split(",")] if extensions_str else None
 
     # Get commits
     with mo.status.spinner("Getting commit history..."):
@@ -329,7 +341,6 @@ def _(
 
 @app.cell
 def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
-    # Collect and process data with progress bar
     with mo.status.progress_bar(
         total=len(sampled),
         title="Analyzing commits",
@@ -339,7 +350,7 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
         raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar)
 
     # Store raw data as DataFrame with timestamps
-    raw_df = pl.DataFrame(raw_data, schema=["commit_date", "line_timestamp"])
+    raw_df = pl.DataFrame(raw_data, schema=["commit_date", "line_timestamp"], orient="row")
     return (raw_df,)
 
 
@@ -355,6 +366,7 @@ def _(mo):
 def _(datetime, granularity_select, pl, raw_df):
     granularity = granularity_select.value
 
+
     def get_period(ts: int, granularity: str) -> str:
         dt = datetime.fromtimestamp(ts)
         if granularity == "Year":
@@ -363,10 +375,10 @@ def _(datetime, granularity_select, pl, raw_df):
             q = (dt.month - 1) // 3 + 1
             return f"{dt.year}-Q{q}"
 
+
     # Apply granularity and aggregate
     df = (
-        raw_df
-        .with_columns(
+        raw_df.with_columns(
             pl.col("line_timestamp")
             .map_elements(lambda ts: get_period(ts, granularity), return_dtype=pl.Utf8)
             .alias("period")
@@ -380,38 +392,35 @@ def _(datetime, granularity_select, pl, raw_df):
 
 
 @app.cell
-def _(repo_url_input):
+def _(cli_args, repo_url_input):
     import httpx
 
-    parts = repo_url_input.value.split('/')
-    repo_name = parts[-2] if repo_url_input.value.endswith("/") else parts[-1]
+    _repo = cli_args.get("repo") or repo_url_input.value
+    parts = _repo.split("/")
+    repo_name = parts[-2] if _repo.endswith("/") else parts[-1]
 
     res = httpx.get(f"https://pypi.org/pypi/{repo_name}/json").json()
-    return (res,)
+    return repo_name, res
 
 
 @app.cell
 def _(alt, pl, res):
     df_versions = pl.DataFrame(
-        [{"version": key, "datetime": value[0]["upload_time"]} for key, value in res["releases"].items() if key.endswith(".0")]
+        [
+            {"version": key, "datetime": value[0]["upload_time"]}
+            for key, value in res["releases"].items()
+            if key.endswith(".0")
+        ]
     ).with_columns(datetime=pl.col("datetime").str.to_datetime())
 
     base_chart = alt.Chart(df_versions)
 
     date_lines = base_chart.mark_rule(strokeDash=[5, 5]).encode(
-        x=alt.X('datetime:T', title='Date'),
-        tooltip=['version:N', 'datetime:T']
+        x=alt.X("datetime:T", title="Date"), tooltip=["version:N", "datetime:T"]
     )
 
-    date_text = base_chart.mark_text(
-        angle=270,
-        align='left',
-        dx=15,
-        dy=0
-    ).encode(
-        x='datetime:T',
-        y=alt.value(10),
-        text='version:N'
+    date_text = base_chart.mark_text(angle=270, align="left", dx=15, dy=0).encode(
+        x="datetime:T", y=alt.value(10), text="version:N"
     )
     return date_lines, date_text
 
@@ -442,14 +451,21 @@ def _(alt, date_lines, date_text, df, granularity_select, show_versions):
     )
 
     out = chart
-    if show_versions.value: 
-         out += date_lines + date_text
+    if show_versions.value:
+        out += date_lines + date_text
     out
-    return
+    return (chart,)
 
 
 @app.cell
-def _():
+def _(Path, chart, date_lines, date_text, repo_name):
+    Path("charts").mkdir(exist_ok=True)
+
+    clean_path = Path("charts") / (repo_name + "-clean.json")
+    clean_path.write_text(chart.to_json())
+
+    versioned_path = Path("charts") / (repo_name + "-versioned.json")
+    versioned_path.write_text((chart + date_lines + date_text).to_json())
     return
 
 
