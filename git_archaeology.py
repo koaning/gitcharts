@@ -461,18 +461,22 @@ def _(alt, date_lines, date_text, df, granularity_select, show_versions):
     )
 
     out
-    return (chart,)
+    return chart, out
 
 
 @app.cell
-def _(Path, alt, chart, date_lines, date_text, repo_name):
+def _(Path, alt, chart, date_lines, date_text, out, repo_name):
     Path("charts").mkdir(exist_ok=True)
 
     clean_path = Path("charts") / (repo_name + "-clean.json")
-    clean_path.write_text(chart.to_json())
+    clean_path.write_text(out.to_json())
 
     versioned_path = Path("charts") / (repo_name + "-versioned.json")
-    versioned_chart = alt.layer(chart, date_lines, date_text).to_dict()
+    versioned_chart = (chart + date_lines + date_text).properties(
+        title="Code Archaeology: Lines of Code by Period Added",
+        width=800,
+        height=500,
+    ).to_dict()
     versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
     return
 
