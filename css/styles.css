@@ -1,5 +1,9 @@
 /* Minimal custom styles on top of Bootstrap */
 
+#repo-select {
+    font-family: 'Courier New', Courier, monospace;
+}
+
 #chart-container {
     min-height: 500px;
     display: flex;

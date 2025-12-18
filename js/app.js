@@ -1,14 +1,7 @@
-const REPOS = [
-  { name: "scikit-lego", displayName: "Scikit-Lego" },
-  { name: "django", displayName: "Django" },
-  { name: "wandb", displayName: "Weights and Biases" },
-  { name: "marimo", displayName: "marimo" },
-  { name: "sentence-transformers", displayName: "sentence-transformers" },
-];
-
 // Application State
 const state = {
-  currentRepo: "scikit-lego",
+  repos: [], // Will be loaded from repos.json
+  currentRepo: null,
   currentVariant: "clean",
   loadedCharts: {}, // Cache: {repo-variant: vegaSpec}
 };
@@ -30,20 +23,21 @@ let chartContainer;
  */
 function parseURL() {
   const hash = window.location.hash.slice(1); // Remove the '#'
+  const defaultRepo = state.repos[0] || "scikit-lego";
 
   if (!hash) {
     return {
-      repo: "scikit-lego",
+      repo: defaultRepo,
       variant: "clean",
     };
   }
 
   const parts = hash.split("/");
-  const repo = parts[0] || "scikit-lego";
+  const repo = parts[0] || defaultRepo;
   const variant = parts[1] || "clean";
 
-  // Validate repo exists in config
-  const validRepo = REPOS.find((r) => r.name === repo) ? repo : "scikit-lego";
+  // Validate repo exists in loaded repos
+  const validRepo = state.repos.includes(repo) ? repo : defaultRepo;
 
   // Validate variant is clean or versioned
   const validVariant = ["clean", "versioned"].includes(variant)
@@ -241,15 +235,32 @@ function onPopState() {
 // ========================================
 
 /**
+ * Load repositories list from repos.json
+ */
+async function loadRepos() {
+  try {
+    const response = await fetch("charts/repos.json");
+    if (!response.ok) {
+      throw new Error(`Failed to load repos: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error loading repos:", error);
+    // Fallback to empty array
+    return [];
+  }
+}
+
+/**
  * Populate dropdown with repositories
  */
 function populateDropdown() {
   repoSelect.innerHTML = "";
 
-  REPOS.forEach((repo) => {
+  state.repos.forEach((repo) => {
     const option = document.createElement("option");
-    option.value = repo.name;
-    option.textContent = repo.displayName;
+    option.value = repo;
+    option.textContent = repo;
     repoSelect.appendChild(option);
   });
 }
@@ -263,6 +274,9 @@ async function init() {
   cleanRadio = document.getElementById("clean");
   versionedRadio = document.getElementById("versioned");
   chartContainer = document.getElementById("chart-container");
+
+  // Load repositories list
+  state.repos = await loadRepos();
 
   // Populate dropdown
   populateDropdown();

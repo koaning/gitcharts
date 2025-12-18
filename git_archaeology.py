@@ -118,7 +118,7 @@ def _(mo):
 def _(mo):
     cli_args = mo.cli_args()
 
-    if mo.app_meta().mode == "script": 
+    if mo.app_meta().mode == "script":
         if len(cli_args) == 0:
             print("You need to pass --repo, and maybe --samples, explicitly.")
             exit()
@@ -259,6 +259,7 @@ def _(cache, datetime, subprocess):
         if indices[-1] != len(commits) - 1:
             indices[-1] = len(commits) - 1
         return [commits[i] for i in indices]
+
 
     @cache.memoize()
     def analyze_single_commit(
@@ -453,7 +454,7 @@ def _(alt, date_lines, date_text, df, granularity_select, show_versions):
     out = chart
     if show_versions.value:
         out += date_lines + date_text
-    
+
     out = out.properties(
         title="Code Archaeology: Lines of Code by Period Added",
         width=800,
@@ -472,11 +473,15 @@ def _(Path, alt, chart, date_lines, date_text, out, repo_name):
     clean_path.write_text(out.to_json())
 
     versioned_path = Path("charts") / (repo_name + "-versioned.json")
-    versioned_chart = (chart + date_lines + date_text).properties(
-        title="Code Archaeology: Lines of Code by Period Added",
-        width=800,
-        height=500,
-    ).to_dict()
+    versioned_chart = (
+        (chart + date_lines + date_text)
+        .properties(
+            title="Code Archaeology: Lines of Code by Period Added",
+            width=800,
+            height=500,
+        )
+        .to_dict()
+    )
     versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
     return
 
