@@ -3219,6 +3219,7 @@
       }
     ]
   },
+  "height": 500,
   "layer": [
     {
       "data": {
@@ -3320,5 +3321,7 @@
         "type": "text"
       }
     }
-  ]
+  ],
+  "title": "Code Archaeology: Lines of Code by Period Added",
+  "width": 800
 }

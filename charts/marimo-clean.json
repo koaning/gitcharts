@@ -3186,7 +3186,13 @@
       "type": "quantitative"
     }
   },
+  "height": 500,
   "mark": {
     "type": "area"
-  }
+  },
+  "title": "Code Archaeology: Lines of Code by Period Added",
+  "usermeta": {
+    "embedOptions": {}
+  },
+  "width": 800
 }
