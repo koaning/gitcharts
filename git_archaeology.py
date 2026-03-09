@@ -232,18 +232,8 @@ def _(cache, datetime, subprocess):
             repo_path,
         )
         files = output.strip().split("\n")
-        EXCLUDED_FILES = {
-            "package-lock.json",
-            "yarn.lock",
-            "pnpm-lock.yaml",
-            "poetry.lock",
-            "Cargo.lock",
-            "Gemfile.lock",
-            "composer.lock",
-        }
         if extensions:
             files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
-        files = [f for f in files if f.split("/")[-1] not in EXCLUDED_FILES]
         return [f for f in files if f]
 
 
