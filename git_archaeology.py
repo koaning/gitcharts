@@ -208,17 +208,8 @@ def _(cache, datetime, subprocess):
     @cache.memoize()
     def get_commit_list(repo_path: str) -> list[tuple[str, datetime]]:
         """Get list of all commits with their dates."""
-        # Get current branch name (falls back to HEAD for detached HEAD state)
-        branch_result = subprocess.run(
-            ["git", "symbolic-ref", "--short", "HEAD"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-        )
-        branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "HEAD"
-
         output = run_git_command(
-            ["git", "log", branch, "--format=%H %at", "--reverse"],
+            ["git", "log", "--format=%H %at", "--reverse"],
             repo_path,
         )
         commits = []
