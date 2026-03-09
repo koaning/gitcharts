@@ -86,8 +86,10 @@ def _(mo):
 
 @app.cell
 def _(mo):
+    from extensions import extensions as default_extensions
+
     file_extensions_input = mo.ui.text(
-        value=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md",
+        value=",".join(default_extensions),
         label="File extensions to analyze (comma-separated, leave empty for all)",
         full_width=True,
     )
@@ -180,7 +182,6 @@ def _(subprocess):
         return repo_path
     return Path, clone_or_update_repo
 
-
 @app.cell(hide_code=True)
 def _(cache, datetime, subprocess):
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -250,7 +251,6 @@ def _(cache, datetime, subprocess):
                 repo_path,
             )
         except (RuntimeError, UnicodeDecodeError):
-            # File might be binary or have other issues
             return []
 
         timestamps = []
@@ -429,7 +429,11 @@ def _(mo, repo_params, repo_url_input):
     parts = _repo.split("/")
     repo_name = parts[-2] if _repo.endswith("/") else parts[-1]
 
-    res = httpx.get(f"https://pypi.org/pypi/{repo_name}/json").json()
+    try:
+        _response = httpx.get(f"https://pypi.org/pypi/{repo_name}/json")
+        res = _response.json() if _response.status_code == 200 else {}
+    except Exception:
+        res = {}
     return repo_name, res
 
 
@@ -438,10 +442,10 @@ def _(alt, pl, res):
     df_versions = pl.DataFrame(
         [
             {"version": key, "datetime": value[0]["upload_time"]}
-            for key, value in res["releases"].items()
+            for key, value in res.get("releases", {}).items()
             if key.endswith(".0") and key != "0.0.0"
         ]
-    ).with_columns(datetime=pl.col("datetime").str.to_datetime())
+    ).with_columns(datetime=pl.col("datetime").str.to_datetime()) if res else pl.DataFrame({"version": [], "datetime": []})
 
     base_chart = alt.Chart(df_versions)
 
