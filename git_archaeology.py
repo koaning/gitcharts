@@ -5,9 +5,8 @@
 #     "polars==1.35.2",
 #     "altair==6.0.0",
 #     "httpx==0.28.1",
-#     "anthropic==0.75.0",
+#     "pydantic>=2.0.0",
 #     "diskcache==5.6.3",
-#     "typer==0.20.0",
 # ]
 # ///
 
@@ -115,14 +114,33 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
+def _():
+    from pydantic import BaseModel, Field
+    from pydantic_core import PydanticUndefined
+
+    class RepoParams(BaseModel):
+        repo: str = Field(description="Repository URL (HTTPS)")
+        samples: int = Field(default=100, description="Number of commits to sample")
+
+    return (RepoParams,)
+
+
+@app.cell
+def _(RepoParams, mo):
     cli_args = mo.cli_args()
 
     if mo.app_meta().mode == "script":
-        if len(cli_args) == 0:
-            print("You need to pass --repo, and maybe --samples, explicitly.")
+        if "help" in cli_args or len(cli_args) == 0:
+            print("Usage: uv run git_archaeology.py --repo <url> [--samples <n>]")
+            print()
+            for name, field in RepoParams.model_fields.items():
+                default = " (required)" if field.default is PydanticUndefined else f" (default: {field.default})"
+                print(f"  --{name:12s} {field.description}{default}")
             exit()
-    return (cli_args,)
+        repo_params = RepoParams(
+            **{k.replace("-", "_"): v for k, v in cli_args.items()}
+        )
+    return cli_args, repo_params
 
 
 @app.cell(hide_code=True)
@@ -289,16 +307,19 @@ def _(cache, datetime, subprocess):
         return results
 
 
-    @cache.memoize(ignore=["progress_bar"])
+    @cache.memoize(ignore=["progress_bar", "is_script"])
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
         extensions: list[str] | None,
         progress_bar=None,
+        is_script: bool = False,
         max_workers: int = 12,
     ) -> list[tuple[datetime, int]]:
         """Collect raw blame data from sampled commits in parallel."""
         raw_data = []
+        total = len(sampled_commits)
+        done = 0
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -307,8 +328,11 @@ def _(cache, datetime, subprocess):
             }
             for future in as_completed(futures):
                 commit_hash, _ = futures[future]
+                done += 1
                 if progress_bar:
                     progress_bar.update(title=f"Analyzed {commit_hash[:8]}...")
+                if is_script:
+                    print(f"  [{done}/{total}] Analyzed {commit_hash[:8]}")
                 raw_data.extend(future.result())
 
         return raw_data
@@ -317,22 +341,22 @@ def _(cache, datetime, subprocess):
 
 @app.cell
 def _(
-    cli_args,
     clone_or_update_repo,
     file_extensions_input,
     get_commit_list,
     mo,
+    repo_params,
     repo_url_input,
     sample_commits,
     sample_count_slider,
 ):
     # Clone or use cached repo
-    repo_url = cli_args.get("repo") or repo_url_input.value.strip()
+    repo_url = repo_params.repo if mo.app_meta().mode == "script" else repo_url_input.value.strip()
     with mo.status.spinner(f"Cloning/updating repository..."):
         repo_path = clone_or_update_repo(repo_url)
 
     # Parse configuration
-    n_samples = cli_args.get("samples") or sample_count_slider.value
+    n_samples = repo_params.samples if mo.app_meta().mode == "script" else sample_count_slider.value
     extensions_str = file_extensions_input.value.strip()
     extensions = [ext.strip() for ext in extensions_str.split(",")] if extensions_str else None
 
@@ -353,7 +377,7 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
         show_rate=True,
         show_eta=True,
     ) as bar:
-        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar)
+        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar, is_script=mo.app_meta().mode == "script")
 
     # Store raw data as DataFrame with timestamps
     raw_df = pl.DataFrame(raw_data, schema=["commit_date", "line_timestamp"], orient="row")
@@ -398,10 +422,10 @@ def _(datetime, granularity_select, pl, raw_df):
 
 
 @app.cell
-def _(cli_args, repo_url_input):
+def _(mo, repo_params, repo_url_input):
     import httpx
 
-    _repo = cli_args.get("repo") or repo_url_input.value
+    _repo = repo_params.repo if mo.app_meta().mode == "script" else repo_url_input.value
     parts = _repo.split("/")
     repo_name = parts[-2] if _repo.endswith("/") else parts[-1]
 
