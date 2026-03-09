@@ -69,16 +69,8 @@ extensions = [
     ".less",
     # XML
     ".xml", ".xsl", ".xslt", ".xsd", ".dtd", ".svg",
-    # JSON
-    ".json", ".jsonc", ".json5",
-    # YAML
-    ".yaml", ".yml",
-    # TOML
-    ".toml",
     # INI / Config
     ".ini", ".cfg", ".conf",
-    # Markdown
-    ".md", ".markdown", ".mdx",
     # SQL
     ".sql", ".ddl", ".dml",
     # GraphQL
