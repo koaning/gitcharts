@@ -4,7 +4,6 @@
 #     "marimo",
 #     "polars==1.35.2",
 #     "altair==6.0.0",
-#     "httpx==0.28.1",
 #     "pydantic>=2.0.0",
 #     "diskcache==5.6.3",
 # ]
@@ -158,18 +157,19 @@ def _(subprocess):
         return DOWNLOADS_DIR / f"{repo_name}-{url_hash}"
 
 
-    def clone_or_update_repo(repo_url: str) -> Path:
+    def clone_or_update_repo(repo_url: str, no_fetch: bool = False) -> Path:
         """Clone repo if not cached, otherwise return cached path."""
         DOWNLOADS_DIR.mkdir(exist_ok=True)
         repo_path = get_cached_repo_path(repo_url)
 
         if repo_path.exists():
-            # Repo already cached, fetch latest
-            subprocess.run(
-                ["git", "fetch", "--all"],
-                cwd=repo_path,
-                capture_output=True,
-            )
+            # Fetch latest unless skipped — costs ~2s of network I/O
+            if not no_fetch:
+                subprocess.run(
+                    ["git", "fetch", "--all"],
+                    cwd=repo_path,
+                    capture_output=True,
+                )
         else:
             # Clone fresh
             subprocess.run(
@@ -183,22 +183,19 @@ def _(subprocess):
 
 @app.cell(hide_code=True)
 def _(cache, datetime, subprocess):
+    import re as _re
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    import re
+
+    # Single shared pool — avoids spinning up/down a new executor per commit
+    _file_executor = ThreadPoolExecutor(max_workers=64)
 
     # Pre-compile regex for timestamp extraction (used in get_blame_info)
     # Format: hash (author timestamp tz line_num) content
-    TIMESTAMP_PATTERN = re.compile(r"\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)")
+    _TIMESTAMP_PATTERN = _re.compile(r"\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)")
 
 
     def run_git_command(cmd: list[str], repo_path: str) -> str:
-        """Run a git command and return stdout."""
-        result = subprocess.run(
-            cmd,
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-        )
+        result = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"Git command failed: {result.stderr}")
         return result.stdout
@@ -206,62 +203,59 @@ def _(cache, datetime, subprocess):
 
     @cache.memoize()
     def get_commit_list(repo_path: str) -> list[tuple[str, datetime]]:
-        """Get list of all commits with their dates."""
-        output = run_git_command(
-            ["git", "log", "--format=%H %at", "--reverse"],
-            repo_path,
-        )
+        output = run_git_command(["git", "log", "--format=%H %at", "--reverse"], repo_path)
         commits = []
         for line in output.strip().split("\n"):
             if line:
-                parts = line.split()
-                commit_hash = parts[0]
-                timestamp = int(parts[1])
-                commit_date = datetime.fromtimestamp(timestamp)
-                commits.append((commit_hash, commit_date))
+                h, ts = line.split()
+                commits.append((h, datetime.fromtimestamp(int(ts))))
         return commits
 
 
+    @cache.memoize()
     def get_tracked_files(
         repo_path: str, commit_hash: str, extensions: list[str] | None = None
-    ) -> list[str]:
-        """Get list of tracked files at a specific commit."""
-        output = run_git_command(
-            ["git", "ls-tree", "-r", "--name-only", commit_hash],
-            repo_path,
-        )
-        files = output.strip().split("\n")
-        if extensions:
-            files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
-        return [f for f in files if f]
+    ) -> list[tuple[str, str]]:
+        """Get list of (file_path, blob_hash) pairs at a specific commit."""
+        output = run_git_command(["git", "ls-tree", "-r", commit_hash], repo_path)
+        results = []
+        for line in output.strip().split("\n"):
+            if not line:
+                continue
+            # Format: <mode> <type> <blob_hash>\t<path>
+            meta, file_path = line.split("\t", 1)
+            blob_hash = meta.split()[2]
+            if extensions and not any(file_path.endswith(ext) for ext in extensions):
+                continue
+            results.append((file_path, blob_hash))
+        return results
 
 
     def get_blame_info(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
-        """
-        Get blame info for a file at a specific commit.
-        Returns list of timestamps for each line.
-
-        Uses -t flag for raw timestamp output which is much faster than --line-porcelain.
-        Format: <hash> <orig_line> <final_line> <num_lines> (<author> <timestamp> <tz>) <content>
-        """
+        """Get blame info using git blame -t (raw timestamps, no subprocess per line)."""
         try:
             output = run_git_command(
-                ["git", "blame", "-t", commit_hash, "--", file_path],
-                repo_path,
+                ["git", "blame", "-t", commit_hash, "--", file_path], repo_path
             )
         except (RuntimeError, UnicodeDecodeError):
-            # File might be binary or have other issues
             return []
+        return [
+            int(m.group(1))
+            for line in output.split("\n")
+            if line and (m := _TIMESTAMP_PATTERN.search(line))
+        ]
 
-        timestamps = []
-        for line in output.split("\n"):
-            if not line:
-                continue
-            match = TIMESTAMP_PATTERN.search(line)
-            if match:
-                timestamps.append(int(match.group(1)))
 
-        return timestamps
+    def get_blame_by_blob(blob_hash: str, repo_path: str, commit_hash: str, file_path: str) -> list[int]:
+        # Identical blob = identical blame regardless of which commit we ask.
+        # Cache by blob hash to avoid redundant work across sampled commits.
+        cache_key = ("blame_v1", blob_hash)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        result = get_blame_info(repo_path, commit_hash, file_path)
+        cache.set(cache_key, result)
+        return result
 
 
     @cache.memoize()
@@ -283,47 +277,38 @@ def _(cache, datetime, subprocess):
     def analyze_single_commit(
         repo_path: str,
         commit_hash: str,
-        commit_date: datetime,
+        commit_timestamp: int,
         extensions: list[str] | None,
-        file_workers: int = 4,
-    ) -> list[tuple[datetime, int]]:
-        """Analyze a single commit - designed for parallel execution.
-
-        Uses nested parallelization: commits in parallel, files within each commit also in parallel.
-        """
+    ) -> list[tuple[int, int]]:
         files = get_tracked_files(repo_path, commit_hash, extensions)
 
-        def blame_file(file_path: str) -> list[int]:
-            return get_blame_info(repo_path, commit_hash, file_path)
+        def blame_file(file_blob: tuple[str, str]) -> list[int]:
+            file_path, blob_hash = file_blob
+            return get_blame_by_blob(blob_hash, repo_path, commit_hash, file_path)
 
         results = []
-        # Parallelize file processing within each commit
-        with ThreadPoolExecutor(max_workers=file_workers) as file_executor:
-            file_futures = {file_executor.submit(blame_file, f): f for f in files}
-            for future in as_completed(file_futures):
-                timestamps = future.result()
-                for ts in timestamps:
-                    results.append((commit_date, ts))
+        file_futures = {_file_executor.submit(blame_file, fb): fb for fb in files}
+        for future in as_completed(file_futures):
+            for ts in future.result():
+                results.append((commit_timestamp, ts))
         return results
 
 
-    @cache.memoize(ignore=["progress_bar", "is_script"])
-    def collect_blame_data(
+    def _collect_blame_data_impl(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
         extensions: list[str] | None,
         progress_bar=None,
         is_script: bool = False,
-        max_workers: int = 12,
+        max_workers: int = 32,
     ) -> list[tuple[datetime, int]]:
-        """Collect raw blame data from sampled commits in parallel."""
         raw_data = []
         total = len(sampled_commits)
         done = 0
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(analyze_single_commit, str(repo_path), h, d, extensions): (h, d)
+                executor.submit(analyze_single_commit, str(repo_path), h, int(d.timestamp()), extensions): (h, d)
                 for h, d in sampled_commits
             }
             for future in as_completed(futures):
@@ -334,8 +319,10 @@ def _(cache, datetime, subprocess):
                 if is_script:
                     print(f"  [{done}/{total}] Analyzed {commit_hash[:8]}")
                 raw_data.extend(future.result())
-
         return raw_data
+
+
+    collect_blame_data = _collect_blame_data_impl
     return collect_blame_data, get_commit_list, sample_commits
 
 
@@ -353,7 +340,7 @@ def _(
     # Clone or use cached repo
     repo_url = repo_params.repo if mo.app_meta().mode == "script" else repo_url_input.value.strip()
     with mo.status.spinner(f"Cloning/updating repository..."):
-        repo_path = clone_or_update_repo(repo_url)
+        repo_path = clone_or_update_repo(repo_url, no_fetch=bool(cli_args.get("no_fetch")))
 
     # Parse configuration
     n_samples = repo_params.samples if mo.app_meta().mode == "script" else sample_count_slider.value
@@ -379,8 +366,14 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
     ) as bar:
         raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar, is_script=mo.app_meta().mode == "script")
 
-    # Store raw data as DataFrame with timestamps
-    raw_df = pl.DataFrame(raw_data, schema=["commit_date", "line_timestamp"], orient="row")
+    # Column-oriented with int timestamps — avoids slow Python datetime object inspection
+    if raw_data:
+        commit_timestamps, line_timestamps = map(list, zip(*raw_data))
+    else:
+        commit_timestamps, line_timestamps = [], []
+    raw_df = pl.DataFrame({"commit_date": commit_timestamps, "line_timestamp": line_timestamps}).with_columns(
+        pl.from_epoch("commit_date", time_unit="s").alias("commit_date")
+    )
     return (raw_df,)
 
 
@@ -393,26 +386,27 @@ def _(mo):
 
 
 @app.cell
-def _(datetime, granularity_select, pl, raw_df):
+def _(granularity_select, pl, raw_df):
     granularity = granularity_select.value
 
 
-    def get_period(ts: int, granularity: str) -> str:
-        dt = datetime.fromtimestamp(ts)
-        if granularity == "Year":
-            return str(dt.year)
-        else:  # Quarter
-            q = (dt.month - 1) // 3 + 1
-            return f"{dt.year}-Q{q}"
+    # Convert line_timestamp (unix int) to a datetime column, then derive period natively
+    ts_col = pl.from_epoch(pl.col("line_timestamp"), time_unit="s")
 
-
-    # Apply granularity and aggregate
-    df = (
-        raw_df.with_columns(
-            pl.col("line_timestamp")
-            .map_elements(lambda ts: get_period(ts, granularity), return_dtype=pl.Utf8)
+    if granularity == "Year":
+        period_expr = ts_col.dt.year().cast(pl.Utf8).alias("period")
+    else:  # Quarter
+        period_expr = (
+            pl.concat_str(
+                ts_col.dt.year().cast(pl.Utf8),
+                pl.lit("-Q"),
+                ((ts_col.dt.month() - 1) // 3 + 1).cast(pl.Utf8),
+            )
             .alias("period")
         )
+
+    df = (
+        raw_df.with_columns(period_expr)
         .group_by(["commit_date", "period"])
         .len()
         .rename({"len": "line_count"})
@@ -422,26 +416,45 @@ def _(datetime, granularity_select, pl, raw_df):
 
 
 @app.cell
-def _(mo, repo_params, repo_url_input):
-    import httpx
+def _(mo, repo_params, repo_path, repo_url_input, subprocess):
+    import re as _re
 
     _repo = repo_params.repo if mo.app_meta().mode == "script" else repo_url_input.value
-    parts = _repo.split("/")
-    repo_name = parts[-2] if _repo.endswith("/") else parts[-1]
+    parts = _repo.rstrip("/").split("/")
+    repo_name = parts[-1].replace(".git", "")
 
-    res = httpx.get(f"https://pypi.org/pypi/{repo_name}/json").json()
-    return repo_name, res
+    # Get version tags from the local clone
+    _result = subprocess.run(
+        ["git", "for-each-ref", "--sort=creatordate",
+         "--format=%(refname:short)|%(creatordate:unix)", "refs/tags"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+    )
+    # Official semver regex from semver.org, with optional v prefix
+    _VERSION_RE = _re.compile(
+        r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+        r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$"
+    )
+    tag_lines = [
+        line for line in _result.stdout.strip().split("\n")
+        if line and _VERSION_RE.match(line.split("|")[0])
+    ]
+    return repo_name, tag_lines
 
 
 @app.cell
-def _(alt, pl, res):
+def _(alt, datetime, pl, tag_lines):
+    _rows = []
+    for _line in tag_lines:
+        _tag, _ts = _line.split("|", 1)
+        if _ts.strip():
+            _rows.append({"version": _tag, "datetime": datetime.fromtimestamp(int(_ts))})
+
     df_versions = pl.DataFrame(
-        [
-            {"version": key, "datetime": value[0]["upload_time"]}
-            for key, value in res["releases"].items()
-            if key.endswith(".0") and key != "0.0.0"
-        ]
-    ).with_columns(datetime=pl.col("datetime").str.to_datetime())
+        _rows,
+        schema={"version": pl.Utf8, "datetime": pl.Datetime},
+    )
 
     base_chart = alt.Chart(df_versions)
 
@@ -494,7 +507,7 @@ def _(Path, alt, chart, date_lines, date_text, out, repo_name):
     Path("charts").mkdir(exist_ok=True)
 
     clean_path = Path("charts") / (repo_name + "-clean.json")
-    clean_path.write_text(out.to_json())
+    clean_path.write_text(out.to_json(validate=False))
 
     versioned_path = Path("charts") / (repo_name + "-versioned.json")
     versioned_chart = (
@@ -504,9 +517,9 @@ def _(Path, alt, chart, date_lines, date_text, out, repo_name):
             width=800,
             height=500,
         )
-        .to_dict()
+        .to_dict(validate=False)
     )
-    versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
+    versioned_path.write_text(alt.Chart.from_dict(versioned_chart, validate=False).to_json(validate=False))
     return
 
 
