@@ -166,15 +166,13 @@ def _(subprocess):
         if repo_path.exists():
             # Repo already cached, fetch latest
             subprocess.run(
-                ["git", "fetch", "--all"],
+                ["git", "fetch", "--all", "--progress"],
                 cwd=repo_path,
-                capture_output=True,
             )
         else:
             # Clone fresh
             subprocess.run(
-                ["git", "clone", repo_url, str(repo_path)],
-                capture_output=True,
+                ["git", "clone", "--progress", repo_url, str(repo_path)],
                 check=True,
             )
         return repo_path
