@@ -34,7 +34,10 @@
         ]);
     in {
       default = pkgs.mkShell {
-        packages = [python];
+        packages = [
+          python
+          pkgs.live-server
+        ];
       };
     });
   };
