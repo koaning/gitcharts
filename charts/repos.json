@@ -1,4 +1,5 @@
 [
+  "datasette",
   "diskcache",
   "django",
   "marimo",

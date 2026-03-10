@@ -317,9 +317,12 @@ def _(cache, datetime, subprocess):
         max_workers: int = 12,
     ) -> list[tuple[datetime, int]]:
         """Collect raw blame data from sampled commits in parallel."""
+        import time
+
         raw_data = []
         total = len(sampled_commits)
         done = 0
+        last_time = time.time()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -329,10 +332,13 @@ def _(cache, datetime, subprocess):
             for future in as_completed(futures):
                 commit_hash, _ = futures[future]
                 done += 1
+                now = time.time()
+                step_duration = now - last_time
+                last_time = now
                 if progress_bar:
                     progress_bar.update(title=f"Analyzed {commit_hash[:8]}...")
                 if is_script:
-                    print(f"  [{done}/{total}] Analyzed {commit_hash[:8]}")
+                    print(f"  [{done}/{total}] Analyzed {commit_hash[:8]} ({step_duration:.1f}s)")
                 raw_data.extend(future.result())
 
         return raw_data
@@ -435,12 +441,14 @@ def _(mo, repo_params, repo_url_input):
 
 @app.cell
 def _(alt, pl, res):
+    _version_data = [
+        {"version": key, "datetime": value[0]["upload_time"]}
+        for key, value in res["releases"].items()
+        if key.endswith(".0") and key != "0.0.0" and len(value) > 0
+    ]
     df_versions = pl.DataFrame(
-        [
-            {"version": key, "datetime": value[0]["upload_time"]}
-            for key, value in res["releases"].items()
-            if key.endswith(".0") and key != "0.0.0"
-        ]
+        _version_data,
+        schema={"version": pl.Utf8, "datetime": pl.Utf8},
     ).with_columns(datetime=pl.col("datetime").str.to_datetime())
 
     base_chart = alt.Chart(df_versions)
