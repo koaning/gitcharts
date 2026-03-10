@@ -1,0 +1,5 @@
+marimo
+polars
+altair
+diskcache
+pydantic

@@ -20,3 +20,19 @@ uv run git_archaeology.py --repo https://github.com/marimo-team/marimo --samples
 
 - `--repo` (required) — Repository URL (HTTPS)
 - `--samples` (optional, default: 100) — Number of commits to sample
+
+## Python Dependencies
+
+`git_archaeology.py` requires the following Python libraries:
+
+- marimo
+- polars
+- altair
+- diskcache
+- pydantic
+
+To install them locally, run
+
+ ```bash
+ pip install -r requirements.txt
+ ```
