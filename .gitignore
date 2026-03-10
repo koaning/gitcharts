@@ -1,4 +1,5 @@
 .downloads/
+.DS_Store
 result
 __marimo__/
 repo-cache
