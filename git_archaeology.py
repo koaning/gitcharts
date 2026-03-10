@@ -441,11 +441,13 @@ def _(mo, repo_params, repo_url_input):
 
 @app.cell
 def _(alt, pl, res):
-    _version_data = [
-        {"version": key, "datetime": value[0]["upload_time"]}
-        for key, value in res["releases"].items()
-        if key.endswith(".0") and key != "0.0.0" and len(value) > 0
-    ]
+    _version_data = []
+    if "releases" in res:
+        _version_data = [
+            {"version": key, "datetime": value[0]["upload_time"]}
+            for key, value in res["releases"].items()
+            if key.endswith(".0") and key != "0.0.0" and len(value) > 0
+        ]
     df_versions = pl.DataFrame(
         _version_data,
         schema={"version": pl.Utf8, "datetime": pl.Utf8},
