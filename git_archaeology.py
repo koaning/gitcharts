@@ -299,89 +299,74 @@ def _(cache, datetime, subprocess):
     ) -> list[tuple[datetime, int]]:
         """Collect raw blame data from sampled commits.
 
-        Splits work into cache hits (resolved instantly in main thread) and cache
-        misses (processed in parallel). Cache writes happen serially in the main
-        thread after each batch completes, eliminating SQLite write contention
-        which caused exponential slowdown under concurrent access.
+        Processes commit-by-commit: for each commit, checks cache for all files
+        at once, submits only misses to the thread pool, then batch-writes results
+        back. This keeps SQLite transactions per-commit (not per-file) and gives
+        clear per-commit progress with timing.
         """
-        repo_path_str = str(repo_path)
+        import time
 
-        # Phase 1: gather all (commit_hash, commit_date, file_path) work items
-        if is_script:
-            print("  Gathering file lists...")
-        work_items: list[tuple[str, datetime, str]] = []
-        for commit_hash, commit_date in sampled_commits:
-            for f in get_tracked_files(repo_path_str, commit_hash, extensions):
-                work_items.append((commit_hash, commit_date, f))
-        total_files = len(work_items)
+        repo_path_str = str(repo_path)
+        raw_data: list[tuple[datetime, int]] = []
         total_commits = len(sampled_commits)
 
-        # Phase 2: split into cached vs uncached — cache checks are fast serial reads
-        cached_items: list[tuple[str, datetime, str, list[int]]] = []
-        uncached_items: list[tuple[str, datetime, str]] = []
+        for ci, (commit_hash, commit_date) in enumerate(sampled_commits):
+            t0 = time.perf_counter()
 
-        for h, d, f in work_items:
-            result = cache.get(_blame_key(repo_path_str, h, f))
-            if result is not None:
-                cached_items.append((h, d, f, result))
-            else:
-                uncached_items.append((h, d, f))
+            files = get_tracked_files(repo_path_str, commit_hash, extensions)
 
-        n_cached = len(cached_items)
-        n_uncached = len(uncached_items)
-        if is_script:
-            print(f"  {n_cached} files cached, {n_uncached} need blaming across {total_commits} commits...")
+            # Split files into cached vs uncached
+            cached_results: list[list[int]] = []
+            uncached_files: list[str] = []
+            for f in files:
+                result = cache.get(_blame_key(repo_path_str, commit_hash, f))
+                if result is not None:
+                    cached_results.append(result)
+                else:
+                    uncached_files.append(f)
 
-        raw_data: list[tuple[datetime, int]] = []
-        done_files = 0
-        done_commits: set[str] = set()
+            # Drain cached hits
+            for timestamps in cached_results:
+                for ts in timestamps:
+                    raw_data.append((commit_date, ts))
 
-        def _record(commit_hash: str, commit_date: datetime, timestamps: list[int]) -> None:
-            nonlocal done_files
-            for ts in timestamps:
-                raw_data.append((commit_date, ts))
-            done_files += 1
-            prev = len(done_commits)
-            done_commits.add(commit_hash)
-            new_commit = len(done_commits) > prev
+            # Parallel blame for cache misses
+            if uncached_files:
+                executor = ThreadPoolExecutor(max_workers=workers)
+                futures = {
+                    executor.submit(_blame_uncached, repo_path_str, commit_hash, f): f
+                    for f in uncached_files
+                }
+                pending = set(futures)
+                try:
+                    while pending:
+                        done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            f = futures[future]
+                            result = future.result()
+                            cache.set(_blame_key(repo_path_str, commit_hash, f), result)
+                            for ts in result:
+                                raw_data.append((commit_date, ts))
+                except KeyboardInterrupt:
+                    if is_script:
+                        print("\n  Interrupted.", flush=True)
+                    import os
+                    os._exit(1)
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
+
+            elapsed = time.perf_counter() - t0
+            n_files = len(files)
+            n_miss = len(uncached_files)
+            msg = (
+                f"[{ci + 1}/{total_commits}] {commit_hash[:8]} — "
+                f"{n_files} files ({n_miss} blamed, {n_files - n_miss} cached) "
+                f"in {elapsed:.1f}s"
+            )
             if progress_bar:
-                pct = int(done_files / total_files * 100) if total_files else 100
-                progress_bar.update(
-                    title=f"Blamed {done_files}/{total_files} files "
-                          f"({len(done_commits)}/{total_commits} commits, {pct}%)"
-                )
-            if is_script and new_commit:
-                pct = int(done_files / total_files * 100) if total_files else 100
-                print(f"  [{len(done_commits)}/{total_commits} commits, {done_files}/{total_files} files] {pct}%", flush=True)
-
-        # Phase 3: drain cached hits instantly
-        for h, d, f, result in cached_items:
-            _record(h, d, result)
-
-        # Phase 4: parallel blame for cache misses; write cache serially in main thread
-        if uncached_items:
-            executor = ThreadPoolExecutor(max_workers=workers)
-            futures = {
-                executor.submit(_blame_uncached, repo_path_str, h, f): (h, d, f)
-                for h, d, f in uncached_items
-            }
-            pending = set(futures)
-            try:
-                while pending:
-                    done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
-                    for future in done:
-                        h, d, f = futures[future]
-                        result = future.result()
-                        # Write to cache in main thread — no contention
-                        cache.set(_blame_key(repo_path_str, h, f), result)
-                        _record(h, d, result)
-            except KeyboardInterrupt:
-                if is_script:
-                    print("\n  Interrupted.", flush=True)
-                import os
-                os._exit(1)
-            finally:
-                executor.shutdown(wait=False, cancel_futures=True)
+                progress_bar.update(title=msg)
+            if is_script:
+                print(f"  {msg}", flush=True)
 
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
