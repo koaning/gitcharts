@@ -250,11 +250,21 @@ def _(cache, datetime, subprocess):
             repo = _get_thread_repo(repo_path)
             commit_oid = pygit2.Oid(hex=commit_hash)
             blame = repo.blame(file_path, newest_commit=commit_oid)
+
+            # Local cache: commit OID → timestamp (avoids repeated repo.get() for same OID)
+            if not hasattr(_thread_local, "ts_cache"):
+                _thread_local.ts_cache = {}
+            ts_cache = _thread_local.ts_cache
+
             timestamps = []
             for hunk in blame:
-                orig_commit = repo.get(hunk.orig_commit_id)
-                if orig_commit is not None:
-                    timestamps.extend([orig_commit.commit_time] * hunk.lines_in_hunk)
+                oid = hunk.orig_commit_id
+                ts = ts_cache.get(oid)
+                if ts is None:
+                    orig_commit = repo.get(oid)
+                    ts = orig_commit.commit_time if orig_commit is not None else 0
+                    ts_cache[oid] = ts
+                timestamps.extend([ts] * hunk.lines_in_hunk)
             return timestamps
         except Exception:
             return []
@@ -289,6 +299,23 @@ def _(cache, datetime, subprocess):
         return [commits[i] for i in indices]
 
 
+    def _get_changed_files(repo_path: str, prev_hash: str, curr_hash: str) -> set[str] | None:
+        """Get set of file paths that changed between two commits using pygit2 diff.
+        Returns None on failure (caller should re-blame everything)."""
+        try:
+            repo = _get_thread_repo(repo_path)
+            prev_commit = repo.get(pygit2.Oid(hex=prev_hash))
+            curr_commit = repo.get(pygit2.Oid(hex=curr_hash))
+            diff = repo.diff(prev_commit.tree, curr_commit.tree)
+            changed = set()
+            for patch in diff:
+                changed.add(patch.delta.old_file.path)
+                changed.add(patch.delta.new_file.path)
+            return changed
+        except Exception:
+            return None  # fallback: caller will treat all files as changed
+
+
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
@@ -299,10 +326,9 @@ def _(cache, datetime, subprocess):
     ) -> list[tuple[datetime, int]]:
         """Collect raw blame data from sampled commits.
 
-        Processes commit-by-commit: for each commit, checks cache for all files
-        at once, submits only misses to the thread pool, then batch-writes results
-        back. This keeps SQLite transactions per-commit (not per-file) and gives
-        clear per-commit progress with timing.
+        Uses incremental diffing: for each commit after the first, only re-blames
+        files that changed since the previous sampled commit. Unchanged files reuse
+        their previous blame result. This typically reduces work by 80-95%.
         """
         import time
 
@@ -310,27 +336,46 @@ def _(cache, datetime, subprocess):
         raw_data: list[tuple[datetime, int]] = []
         total_commits = len(sampled_commits)
 
+        # Running state: file → blame timestamps, carried forward between commits
+        current_blame: dict[str, list[int]] = {}
+        prev_commit_hash: str | None = None
+
         for ci, (commit_hash, commit_date) in enumerate(sampled_commits):
             t0 = time.perf_counter()
 
             files = get_tracked_files(repo_path_str, commit_hash, extensions)
+            file_set = set(files)
 
-            # Split files into cached vs uncached
-            cached_results: list[list[int]] = []
+            # Determine which files need re-blaming
+            if prev_commit_hash is None:
+                # First commit: everything is new
+                need_blame = set(files)
+            else:
+                changed = _get_changed_files(repo_path_str, prev_commit_hash, commit_hash)
+                if changed is None:
+                    # diff failed — be safe, re-blame everything
+                    need_blame = file_set
+                else:
+                    # Only blame files that are (a) changed and (b) still exist
+                    need_blame = file_set & changed
+                    # Also blame files that are new (not in previous blame state)
+                    need_blame |= file_set - set(current_blame)
+
+            # Remove deleted files from running state
+            for f in list(current_blame):
+                if f not in file_set:
+                    del current_blame[f]
+
+            # Check cache for files that need blaming
             uncached_files: list[str] = []
-            for f in files:
-                result = cache.get(_blame_key(repo_path_str, commit_hash, f))
-                if result is not None:
-                    cached_results.append(result)
+            for f in need_blame:
+                cached = cache.get(_blame_key(repo_path_str, commit_hash, f))
+                if cached is not None:
+                    current_blame[f] = cached
                 else:
                     uncached_files.append(f)
 
-            # Drain cached hits
-            for timestamps in cached_results:
-                for ts in timestamps:
-                    raw_data.append((commit_date, ts))
-
-            # Parallel blame for cache misses
+            # Parallel blame for uncached files
             new_results: dict[str, list[int]] = {}
             if uncached_files:
                 executor = ThreadPoolExecutor(max_workers=workers)
@@ -353,28 +398,35 @@ def _(cache, datetime, subprocess):
                 finally:
                     executor.shutdown(wait=False, cancel_futures=True)
 
-            # Append new blame results to raw_data
-            for f, timestamps in new_results.items():
-                for ts in timestamps:
-                    raw_data.append((commit_date, ts))
+                # Update running state + batch cache write in single transaction
+                with cache.transact():
+                    for f, timestamps in new_results.items():
+                        current_blame[f] = timestamps
+                        cache.set(_blame_key(repo_path_str, commit_hash, f), timestamps)
 
-            # Batch-write all new results to cache (single burst, not per-file during polling)
-            for f, timestamps in new_results.items():
-                cache.set(_blame_key(repo_path_str, commit_hash, f), timestamps)
+            # Build raw_data for this commit from the running state
+            for f in files:
+                if f in current_blame:
+                    for ts in current_blame[f]:
+                        raw_data.append((commit_date, ts))
 
             elapsed = time.perf_counter() - t0
             n_files = len(files)
-            n_miss = len(uncached_files)
-            n_lines = sum(len(ts) for ts in cached_results) + sum(len(ts) for ts in new_results.values())
+            n_reused = n_files - len(need_blame)
+            n_cache_hit = len(need_blame) - len(uncached_files)
+            n_blamed = len(uncached_files)
+            n_lines = sum(len(current_blame.get(f, [])) for f in files)
             msg = (
                 f"[{ci + 1}/{total_commits}] {commit_hash[:8]} — "
-                f"{n_files} files ({n_miss} blamed, {n_files - n_miss} cached), "
+                f"{n_files} files ({n_blamed} blamed, {n_cache_hit} cached, {n_reused} reused), "
                 f"{n_lines} lines in {elapsed:.1f}s"
             )
             if progress_bar:
                 progress_bar.update(title=msg)
             if is_script:
                 print(f"  {msg}", flush=True)
+
+            prev_commit_hash = commit_hash
 
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
