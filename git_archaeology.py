@@ -295,31 +295,53 @@ def _(cache, datetime, subprocess):
         eliminating per-file process spawn overhead. Results are cached per
         (repo, commit, file) so reruns are instant.
         """
-        # Collect all (commit_hash, commit_date, file_path) tuples upfront
+        repo_path_str = str(repo_path)
+
+        # Phase 1: collect all work items (fast, sequential ls-tree calls)
+        if is_script:
+            print("  Gathering file lists...")
         work_items: list[tuple[str, datetime, str]] = []
         for commit_hash, commit_date in sampled_commits:
-            for f in get_tracked_files(str(repo_path), commit_hash, extensions):
+            for f in get_tracked_files(repo_path_str, commit_hash, extensions):
                 work_items.append((commit_hash, commit_date, f))
-
-        raw_data: list[tuple[datetime, int]] = []
+        total_files = len(work_items)
         total_commits = len(sampled_commits)
-        done_commits: set[str] = set()
 
-        with ThreadPoolExecutor(max_workers=workers) as executor:
+        if is_script:
+            print(f"  Blaming {total_files} files across {total_commits} commits...")
+
+        # Phase 2: parallel blame — progress per file, not per commit
+        raw_data: list[tuple[datetime, int]] = []
+        done_files = 0
+        done_commits: set[str] = set()
+        executor = ThreadPoolExecutor(max_workers=workers)
+        try:
             futures = {
-                executor.submit(get_blame_info, str(repo_path), h, f): (h, d)
+                executor.submit(get_blame_info, repo_path_str, h, f): (h, d)
                 for h, d, f in work_items
             }
             for future in as_completed(futures):
                 commit_hash, commit_date = futures[future]
                 for ts in future.result():
                     raw_data.append((commit_date, ts))
-                if commit_hash not in done_commits:
-                    done_commits.add(commit_hash)
-                    if progress_bar:
-                        progress_bar.update(title=f"Analyzed {commit_hash[:8]}...")
-                    if is_script:
-                        print(f"  [{len(done_commits)}/{total_commits}] Analyzed {commit_hash[:8]}")
+                done_files += 1
+                done_commits.add(commit_hash)
+                if progress_bar:
+                    pct = int(done_files / total_files * 100) if total_files else 100
+                    n_commits_done = len(done_commits)
+                    progress_bar.update(
+                        title=f"Blamed {done_files}/{total_files} files "
+                              f"({n_commits_done}/{total_commits} commits, {pct}%)"
+                    )
+                if is_script and done_files % max(1, total_files // 40) == 0:
+                    pct = int(done_files / total_files * 100) if total_files else 100
+                    print(f"  [{done_files}/{total_files} files, {len(done_commits)}/{total_commits} commits] {pct}%")
+        except KeyboardInterrupt:
+            print("\n  Interrupted — shutting down workers...")
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+        finally:
+            executor.shutdown(wait=False)
 
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
@@ -357,13 +379,8 @@ def _(
 
 @app.cell
 def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
-    with mo.status.progress_bar(
-        total=len(sampled),
-        title="Analyzing commits",
-        show_rate=True,
-        show_eta=True,
-    ) as bar:
-        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar, is_script=mo.app_meta().mode == "script")
+    with mo.status.spinner(title="Gathering file lists...") as spinner:
+        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=spinner, is_script=mo.app_meta().mode == "script")
 
     # Store raw data as DataFrame with timestamps
     raw_df = pl.DataFrame(raw_data, schema=["commit_date", "line_timestamp"], orient="row")
