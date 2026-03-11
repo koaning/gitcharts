@@ -38,7 +38,6 @@ def _(mo):
 def _():
     import subprocess
     from datetime import datetime
-    from collections import defaultdict
     import polars as pl
     import altair as alt
     from diskcache import Cache
@@ -182,11 +181,6 @@ def _(subprocess):
 @app.cell(hide_code=True)
 def _(cache, datetime, subprocess):
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    import re
-
-    # Pre-compile regex for timestamp extraction (used in get_blame_info)
-    # Format: hash (author timestamp tz line_num) content
-    TIMESTAMP_PATTERN = re.compile(r"\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)")
 
 
     def run_git_command(cmd: list[str], repo_path: str) -> str:
@@ -201,7 +195,7 @@ def _(cache, datetime, subprocess):
         )
         if result.returncode != 0:
             raise RuntimeError(f"Git command failed: {result.stderr}")
-        return result.stdout
+        return result.stdout or ""
 
 
     @cache.memoize()
@@ -236,33 +230,50 @@ def _(cache, datetime, subprocess):
         return [f for f in files if f]
 
 
+    @cache.memoize()
     def get_blame_info(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
         """
         Get blame info for a file at a specific commit.
         Returns list of timestamps for each line.
 
-        Uses -t flag for raw timestamp output which is much faster than --line-porcelain.
-        Format: <hash> <orig_line> <final_line> <num_lines> (<author> <timestamp> <tz>) <content>
+        Uses --porcelain for structured output; cached per (commit, file) so
+        repeated runs and shared files across commits are fast.
         """
         try:
             output = run_git_command(
-                ["git", "blame", "-t", commit_hash, "--", file_path],
+                ["git", "blame", "--porcelain", commit_hash, "--", file_path],
                 repo_path,
             )
-        except (RuntimeError, UnicodeDecodeError):
-            # File might be binary or have other issues
+        except Exception:
+            # File might be binary, missing, or have other issues
             return []
 
+        # --porcelain format: lines starting with "author-time " contain the timestamp
         timestamps = []
         for line in output.split("\n"):
-            if not line:
-                continue
-            match = TIMESTAMP_PATTERN.search(line)
-            if match:
-                timestamps.append(int(match.group(1)))
+            if line.startswith("author-time "):
+                timestamps.append(int(line[12:]))
 
         return timestamps
 
+
+    def analyze_single_commit(
+        repo_path: str,
+        commit_hash: str,
+        commit_date: datetime,
+        extensions: list[str] | None,
+        max_file_workers: int = 16,
+    ) -> list[tuple[datetime, int]]:
+        """Analyze a single commit using parallel file blame."""
+        files = get_tracked_files(repo_path, commit_hash, extensions)
+
+        results = []
+        with ThreadPoolExecutor(max_workers=max_file_workers) as file_executor:
+            futures = {file_executor.submit(get_blame_info, repo_path, commit_hash, f): f for f in files}
+            for future in as_completed(futures):
+                for ts in future.result():
+                    results.append((commit_date, ts))
+        return results
 
     @cache.memoize()
     def sample_commits(
@@ -278,35 +289,6 @@ def _(cache, datetime, subprocess):
             indices[-1] = len(commits) - 1
         return [commits[i] for i in indices]
 
-
-    @cache.memoize()
-    def analyze_single_commit(
-        repo_path: str,
-        commit_hash: str,
-        commit_date: datetime,
-        extensions: list[str] | None,
-        file_workers: int = 4,
-    ) -> list[tuple[datetime, int]]:
-        """Analyze a single commit - designed for parallel execution.
-
-        Uses nested parallelization: commits in parallel, files within each commit also in parallel.
-        """
-        files = get_tracked_files(repo_path, commit_hash, extensions)
-
-        def blame_file(file_path: str) -> list[int]:
-            return get_blame_info(repo_path, commit_hash, file_path)
-
-        results = []
-        # Parallelize file processing within each commit
-        with ThreadPoolExecutor(max_workers=file_workers) as file_executor:
-            file_futures = {file_executor.submit(blame_file, f): f for f in files}
-            for future in as_completed(file_futures):
-                timestamps = future.result()
-                for ts in timestamps:
-                    results.append((commit_date, ts))
-        return results
-
-
     @cache.memoize(ignore=["progress_bar", "is_script"])
     def collect_blame_data(
         repo_path: str,
@@ -314,9 +296,14 @@ def _(cache, datetime, subprocess):
         extensions: list[str] | None,
         progress_bar=None,
         is_script: bool = False,
-        max_workers: int = 12,
+        commit_workers: int = 8,
     ) -> list[tuple[datetime, int]]:
-        """Collect raw blame data from sampled commits in parallel."""
+        """Collect raw blame data from sampled commits.
+
+        Commits run in parallel (commit_workers), each commit blames its files
+        in parallel (16 threads). get_blame_info results are cached per (commit, file)
+        so reruns and shared file history across commits are instant.
+        """
         import time
 
         raw_data = []
@@ -324,7 +311,7 @@ def _(cache, datetime, subprocess):
         done = 0
         last_time = time.time()
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=commit_workers) as executor:
             futures = {
                 executor.submit(analyze_single_commit, str(repo_path), h, d, extensions): (h, d)
                 for h, d in sampled_commits
@@ -399,26 +386,28 @@ def _(mo):
 
 
 @app.cell
-def _(datetime, granularity_select, pl, raw_df):
+def _(granularity_select, pl, raw_df):
     granularity = granularity_select.value
 
+    # Convert unix timestamps to datetime natively in Polars (much faster than map_elements)
+    line_dt = pl.from_epoch(pl.col("line_timestamp"), time_unit="s")
 
-    def get_period(ts: int, granularity: str) -> str:
-        dt = datetime.fromtimestamp(ts)
-        if granularity == "Year":
-            return str(dt.year)
-        else:  # Quarter
-            q = (dt.month - 1) // 3 + 1
-            return f"{dt.year}-Q{q}"
-
+    if granularity == "Year":
+        period_expr = line_dt.dt.year().cast(pl.Utf8).alias("period")
+    else:  # Quarter
+        period_expr = (
+            pl.concat_str(
+                [
+                    line_dt.dt.year().cast(pl.Utf8),
+                    pl.lit("-Q"),
+                    ((line_dt.dt.month() - 1) // 3 + 1).cast(pl.Utf8),
+                ]
+            ).alias("period")
+        )
 
     # Apply granularity and aggregate
     df = (
-        raw_df.with_columns(
-            pl.col("line_timestamp")
-            .map_elements(lambda ts: get_period(ts, granularity), return_dtype=pl.Utf8)
-            .alias("period")
-        )
+        raw_df.with_columns(period_expr)
         .group_by(["commit_date", "period"])
         .len()
         .rename({"len": "line_count"})
