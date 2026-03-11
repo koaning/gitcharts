@@ -8,6 +8,19 @@
 
 With charts like this you get an idea of how quickly code is rewritten in a repo. You can explore the GitHub pages link or the marimo notebook to learn more.
 
+## Build
+
+```bash
+python3 -m venv .venv                                                                                  
+. .venv/bin/activate           
+pip install -r requirements.txt
+python git_archaeology.py --repo https://github.com/marimo-team/marimo
+# OR python git_archaeology.py --repo ssh://git@github.com/marimo-team/marimo
+python -m http.server 10000
+```
+
+Open `http://localhost:10000` in your browser.
+
 ## CLI Usage
 
 You can also run `git_archaeology.py` as a command-line script:
