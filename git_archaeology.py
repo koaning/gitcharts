@@ -7,6 +7,7 @@
 #     "httpx==0.28.1",
 #     "pydantic>=2.0.0",
 #     "diskcache==5.6.3",
+#     "pygit2>=1.13.0",
 # ]
 # ///
 
@@ -38,7 +39,6 @@ def _(mo):
 def _():
     import subprocess
     from datetime import datetime
-    from collections import defaultdict
     import polars as pl
     import altair as alt
     from diskcache import Cache
@@ -87,7 +87,7 @@ def _(mo):
 @app.cell
 def _(mo):
     file_extensions_input = mo.ui.text(
-        value=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md",
+        value=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md,.cs,.scss,.html",
         label="File extensions to analyze (comma-separated, leave empty for all)",
         full_width=True,
     )
@@ -166,15 +166,13 @@ def _(subprocess):
         if repo_path.exists():
             # Repo already cached, fetch latest
             subprocess.run(
-                ["git", "fetch", "--all"],
+                ["git", "fetch", "--all", "--progress"],
                 cwd=repo_path,
-                capture_output=True,
             )
         else:
             # Clone fresh
             subprocess.run(
-                ["git", "clone", repo_url, str(repo_path)],
-                capture_output=True,
+                ["git", "clone", "--progress", repo_url, str(repo_path)],
                 check=True,
             )
         return repo_path
@@ -183,12 +181,17 @@ def _(subprocess):
 
 @app.cell(hide_code=True)
 def _(cache, datetime, subprocess):
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import re
+    import pygit2
+    from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
-    # Pre-compile regex for timestamp extraction (used in get_blame_info)
-    # Format: hash (author timestamp tz line_num) content
-    TIMESTAMP_PATTERN = re.compile(r"\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)")
+    # Repo cache for the main thread (used by _get_changed_files)
+    _main_repos: dict[str, pygit2.Repository] = {}
+
+
+    def _get_repo(repo_path: str) -> pygit2.Repository:
+        if repo_path not in _main_repos:
+            _main_repos[repo_path] = pygit2.Repository(repo_path)
+        return _main_repos[repo_path]
 
 
     def run_git_command(cmd: list[str], repo_path: str) -> str:
@@ -198,10 +201,12 @@ def _(cache, datetime, subprocess):
             cwd=repo_path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             raise RuntimeError(f"Git command failed: {result.stderr}")
-        return result.stdout
+        return result.stdout if result.stdout is not None else ""
 
 
     @cache.memoize()
@@ -212,7 +217,7 @@ def _(cache, datetime, subprocess):
             repo_path,
         )
         commits = []
-        for line in output.strip().split("\n"):
+        for line in (output or "").strip().split("\n"):
             if line:
                 parts = line.split()
                 commit_hash = parts[0]
@@ -230,38 +235,57 @@ def _(cache, datetime, subprocess):
             ["git", "ls-tree", "-r", "--name-only", commit_hash],
             repo_path,
         )
-        files = output.strip().split("\n")
+        files = (output or "").strip().split("\n")
         if extensions:
             files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
         return [f for f in files if f]
 
 
-    def get_blame_info(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
-        """
-        Get blame info for a file at a specific commit.
-        Returns list of timestamps for each line.
-
-        Uses -t flag for raw timestamp output which is much faster than --line-porcelain.
-        Format: <hash> <orig_line> <final_line> <num_lines> (<author> <timestamp> <tz>) <content>
-        """
+    def _blame_uncached(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
+        """Run git blame as subprocess (releases GIL → true parallelism with threads)."""
         try:
-            output = run_git_command(
-                ["git", "blame", "-t", commit_hash, "--", file_path],
-                repo_path,
+            result = subprocess.run(
+                ["git", "blame", "--porcelain", commit_hash, "--", file_path],
+                cwd=repo_path,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
             )
-        except (RuntimeError, UnicodeDecodeError):
-            # File might be binary or have other issues
+            if result.returncode != 0:
+                return []
+            # --porcelain: lines starting with "author-time " have the timestamp
+            # Using find() is faster than startswith() per line for large output
+            out = result.stdout
+            timestamps = []
+            pos = 0
+            marker = "author-time "
+            marker_len = 12
+            while True:
+                pos = out.find(marker, pos)
+                if pos == -1:
+                    break
+                end = out.find("\n", pos + marker_len)
+                if end == -1:
+                    end = len(out)
+                timestamps.append(int(out[pos + marker_len:end]))
+                pos = end
+            return timestamps
+        except Exception:
             return []
 
-        timestamps = []
-        for line in output.split("\n"):
-            if not line:
-                continue
-            match = TIMESTAMP_PATTERN.search(line)
-            if match:
-                timestamps.append(int(match.group(1)))
 
-        return timestamps
+    def _blame_key(repo_path: str, commit_hash: str, file_path: str) -> str:
+        return f"blame2\x00{commit_hash}\x00{file_path}"
+
+
+    def get_blame_info(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
+        """Cached blame lookup — checks cache first, falls back to pygit2."""
+        key = _blame_key(repo_path, commit_hash, file_path)
+        result = cache.get(key)
+        if result is None:
+            result = _blame_uncached(repo_path, commit_hash, file_path)
+            cache.set(key, result)
+        return result
 
 
     @cache.memoize()
@@ -279,67 +303,134 @@ def _(cache, datetime, subprocess):
         return [commits[i] for i in indices]
 
 
-    @cache.memoize()
-    def analyze_single_commit(
-        repo_path: str,
-        commit_hash: str,
-        commit_date: datetime,
-        extensions: list[str] | None,
-        file_workers: int = 4,
-    ) -> list[tuple[datetime, int]]:
-        """Analyze a single commit - designed for parallel execution.
-
-        Uses nested parallelization: commits in parallel, files within each commit also in parallel.
-        """
-        files = get_tracked_files(repo_path, commit_hash, extensions)
-
-        def blame_file(file_path: str) -> list[int]:
-            return get_blame_info(repo_path, commit_hash, file_path)
-
-        results = []
-        # Parallelize file processing within each commit
-        with ThreadPoolExecutor(max_workers=file_workers) as file_executor:
-            file_futures = {file_executor.submit(blame_file, f): f for f in files}
-            for future in as_completed(file_futures):
-                timestamps = future.result()
-                for ts in timestamps:
-                    results.append((commit_date, ts))
-        return results
+    def _get_changed_files(repo_path: str, prev_hash: str, curr_hash: str) -> set[str] | None:
+        """Get set of file paths that changed between two commits using pygit2 diff.
+        Returns None on failure (caller should re-blame everything)."""
+        try:
+            repo = _get_repo(repo_path)
+            prev_commit = repo.get(pygit2.Oid(hex=prev_hash))
+            curr_commit = repo.get(pygit2.Oid(hex=curr_hash))
+            diff = repo.diff(prev_commit.tree, curr_commit.tree)
+            changed = set()
+            for patch in diff:
+                changed.add(patch.delta.old_file.path)
+                changed.add(patch.delta.new_file.path)
+            return changed
+        except Exception:
+            return None  # fallback: caller will treat all files as changed
 
 
-    @cache.memoize(ignore=["progress_bar", "is_script"])
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
         extensions: list[str] | None,
         progress_bar=None,
         is_script: bool = False,
-        max_workers: int = 12,
+        workers: int = 32,
     ) -> list[tuple[datetime, int]]:
-        """Collect raw blame data from sampled commits in parallel."""
+        """Collect raw blame data from sampled commits.
+
+        Uses incremental diffing: for each commit after the first, only re-blames
+        files that changed since the previous sampled commit. Unchanged files reuse
+        their previous blame result. This typically reduces work by 80-95%.
+        """
         import time
 
-        raw_data = []
-        total = len(sampled_commits)
-        done = 0
-        last_time = time.time()
+        repo_path_str = str(repo_path)
+        raw_data: list[tuple[datetime, int]] = []
+        total_commits = len(sampled_commits)
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(analyze_single_commit, str(repo_path), h, d, extensions): (h, d)
-                for h, d in sampled_commits
-            }
-            for future in as_completed(futures):
-                commit_hash, _ = futures[future]
-                done += 1
-                now = time.time()
-                step_duration = now - last_time
-                last_time = now
-                if progress_bar:
-                    progress_bar.update(title=f"Analyzed {commit_hash[:8]}...")
-                if is_script:
-                    print(f"  [{done}/{total}] Analyzed {commit_hash[:8]} ({step_duration:.1f}s)")
-                raw_data.extend(future.result())
+        # Running state: file → blame timestamps, carried forward between commits
+        current_blame: dict[str, list[int]] = {}
+        prev_commit_hash: str | None = None
+
+        for ci, (commit_hash, commit_date) in enumerate(sampled_commits):
+            t0 = time.perf_counter()
+
+            files = get_tracked_files(repo_path_str, commit_hash, extensions)
+            file_set = set(files)
+
+            # Determine which files need re-blaming
+            if prev_commit_hash is None:
+                # First commit: everything is new
+                need_blame = set(files)
+            else:
+                changed = _get_changed_files(repo_path_str, prev_commit_hash, commit_hash)
+                if changed is None:
+                    # diff failed — be safe, re-blame everything
+                    need_blame = file_set
+                else:
+                    # Only blame files that are (a) changed and (b) still exist
+                    need_blame = file_set & changed
+                    # Also blame files that are new (not in previous blame state)
+                    need_blame |= file_set - set(current_blame)
+
+            # Remove deleted files from running state
+            for f in list(current_blame):
+                if f not in file_set:
+                    del current_blame[f]
+
+            # Check cache for files that need blaming
+            uncached_files: list[str] = []
+            for f in need_blame:
+                cached = cache.get(_blame_key(repo_path_str, commit_hash, f))
+                if cached is not None:
+                    current_blame[f] = cached
+                else:
+                    uncached_files.append(f)
+
+            # Parallel blame for uncached files
+            new_results: dict[str, list[int]] = {}
+            if uncached_files:
+                executor = ThreadPoolExecutor(max_workers=workers)
+                futures = {
+                    executor.submit(_blame_uncached, repo_path_str, commit_hash, f): f
+                    for f in uncached_files
+                }
+                pending = set(futures)
+                try:
+                    while pending:
+                        done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            f = futures[future]
+                            new_results[f] = future.result()
+                except KeyboardInterrupt:
+                    if is_script:
+                        print("\n  Interrupted.", flush=True)
+                    import os
+                    os._exit(1)
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
+
+                # Update running state + batch cache write in single transaction
+                with cache.transact():
+                    for f, timestamps in new_results.items():
+                        current_blame[f] = timestamps
+                        cache.set(_blame_key(repo_path_str, commit_hash, f), timestamps)
+
+            # Build raw_data for this commit from the running state
+            for f in files:
+                if f in current_blame:
+                    for ts in current_blame[f]:
+                        raw_data.append((commit_date, ts))
+
+            elapsed = time.perf_counter() - t0
+            n_files = len(files)
+            n_reused = n_files - len(need_blame)
+            n_cache_hit = len(need_blame) - len(uncached_files)
+            n_blamed = len(uncached_files)
+            n_lines = sum(len(current_blame.get(f, [])) for f in files)
+            msg = (
+                f"[{ci + 1}/{total_commits}] {commit_hash[:8]} — "
+                f"{n_files} files ({n_blamed} blamed, {n_cache_hit} cached, {n_reused} reused), "
+                f"{n_lines} lines in {elapsed:.1f}s"
+            )
+            if progress_bar:
+                progress_bar.update(title=msg)
+            if is_script:
+                print(f"  {msg}", flush=True)
+
+            prev_commit_hash = commit_hash
 
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
@@ -377,13 +468,8 @@ def _(
 
 @app.cell
 def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
-    with mo.status.progress_bar(
-        total=len(sampled),
-        title="Analyzing commits",
-        show_rate=True,
-        show_eta=True,
-    ) as bar:
-        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar, is_script=mo.app_meta().mode == "script")
+    with mo.status.spinner(title="Gathering file lists...") as spinner:
+        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=spinner, is_script=mo.app_meta().mode == "script")
 
     # Store raw data as DataFrame with timestamps
     raw_df = pl.DataFrame(raw_data, schema=["commit_date", "line_timestamp"], orient="row")
@@ -399,26 +485,28 @@ def _(mo):
 
 
 @app.cell
-def _(datetime, granularity_select, pl, raw_df):
+def _(granularity_select, pl, raw_df):
     granularity = granularity_select.value
 
+    # Convert unix timestamps to datetime natively in Polars (much faster than map_elements)
+    line_dt = pl.from_epoch(pl.col("line_timestamp"), time_unit="s")
 
-    def get_period(ts: int, granularity: str) -> str:
-        dt = datetime.fromtimestamp(ts)
-        if granularity == "Year":
-            return str(dt.year)
-        else:  # Quarter
-            q = (dt.month - 1) // 3 + 1
-            return f"{dt.year}-Q{q}"
-
+    if granularity == "Year":
+        period_expr = line_dt.dt.year().cast(pl.Utf8).alias("period")
+    else:  # Quarter
+        period_expr = (
+            pl.concat_str(
+                [
+                    line_dt.dt.year().cast(pl.Utf8),
+                    pl.lit("-Q"),
+                    ((line_dt.dt.month() - 1) // 3 + 1).cast(pl.Utf8),
+                ]
+            ).alias("period")
+        )
 
     # Apply granularity and aggregate
     df = (
-        raw_df.with_columns(
-            pl.col("line_timestamp")
-            .map_elements(lambda ts: get_period(ts, granularity), return_dtype=pl.Utf8)
-            .alias("period")
-        )
+        raw_df.with_columns(period_expr)
         .group_by(["commit_date", "period"])
         .len()
         .rename({"len": "line_count"})
@@ -443,28 +531,34 @@ def _(mo, repo_params, repo_url_input):
 def _(alt, pl, res):
     _version_data = [
         {"version": key, "datetime": value[0]["upload_time"]}
-        for key, value in res["releases"].items()
+        for key, value in res.get("releases", {}).items()
         if key.endswith(".0") and key != "0.0.0" and len(value) > 0
     ]
-    df_versions = pl.DataFrame(
-        _version_data,
-        schema={"version": pl.Utf8, "datetime": pl.Utf8},
-    ).with_columns(datetime=pl.col("datetime").str.to_datetime())
+    has_versions = len(_version_data) > 0
 
-    base_chart = alt.Chart(df_versions)
+    if has_versions:
+        df_versions = pl.DataFrame(
+            _version_data,
+            schema={"version": pl.Utf8, "datetime": pl.Utf8},
+        ).with_columns(datetime=pl.col("datetime").str.to_datetime())
 
-    date_lines = base_chart.mark_rule(strokeDash=[5, 5]).encode(
-        x=alt.X("datetime:T", title="Date"), tooltip=["version:N", "datetime:T"]
-    )
+        base_chart = alt.Chart(df_versions)
 
-    date_text = base_chart.mark_text(angle=270, align="left", dx=15, dy=0).encode(
-        x="datetime:T", y=alt.value(10), text="version:N"
-    )
-    return date_lines, date_text
+        date_lines = base_chart.mark_rule(strokeDash=[5, 5]).encode(
+            x=alt.X("datetime:T", title="Date"), tooltip=["version:N", "datetime:T"]
+        )
+
+        date_text = base_chart.mark_text(angle=270, align="left", dx=15, dy=0).encode(
+            x="datetime:T", y=alt.value(10), text="version:N"
+        )
+    else:
+        date_lines = None
+        date_text = None
+    return date_lines, date_text, has_versions
 
 
 @app.cell
-def _(alt, date_lines, date_text, df, granularity_select, show_versions):
+def _(alt, date_lines, date_text, df, granularity_select, has_versions, show_versions):
     color_title = "Year Added" if granularity_select.value == "Year" else "Quarter Added"
 
     chart = (
@@ -484,7 +578,7 @@ def _(alt, date_lines, date_text, df, granularity_select, show_versions):
     )
 
     out = chart
-    if show_versions.value:
+    if show_versions.value and has_versions:
         out += date_lines + date_text
 
     out = out.properties(
@@ -498,23 +592,26 @@ def _(alt, date_lines, date_text, df, granularity_select, show_versions):
 
 
 @app.cell
-def _(Path, alt, chart, date_lines, date_text, out, repo_name):
+def _(Path, alt, chart, date_lines, date_text, has_versions, out, repo_name):
     Path("charts").mkdir(exist_ok=True)
 
     clean_path = Path("charts") / (repo_name + "-clean.json")
     clean_path.write_text(out.to_json())
 
     versioned_path = Path("charts") / (repo_name + "-versioned.json")
-    versioned_chart = (
-        (chart + date_lines + date_text)
-        .properties(
-            title="Code Archaeology: Lines of Code by Period Added",
-            width=800,
-            height=500,
+    if has_versions:
+        versioned_chart = (
+            (chart + date_lines + date_text)
+            .properties(
+                title="Code Archaeology: Lines of Code by Period Added",
+                width=800,
+                height=500,
+            )
+            .to_dict()
         )
-        .to_dict()
-    )
-    versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
+        versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
+    else:
+        versioned_path.write_text(out.to_json())
     return
 
 
