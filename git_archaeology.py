@@ -244,12 +244,8 @@ def _(cache, datetime, subprocess):
         return [f for f in files if f]
 
 
-    @cache.memoize()
-    def get_blame_info(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
-        """
-        Get blame info for a file at a specific commit using pygit2 (libgit2).
-        Returns list of timestamps (one per line). Cached per (repo, commit, file).
-        """
+    def _blame_uncached(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
+        """Raw pygit2 blame — no caching. Called from worker threads."""
         try:
             repo = _get_thread_repo(repo_path)
             commit_oid = pygit2.Oid(hex=commit_hash)
@@ -262,6 +258,20 @@ def _(cache, datetime, subprocess):
             return timestamps
         except Exception:
             return []
+
+
+    def _blame_key(repo_path: str, commit_hash: str, file_path: str) -> str:
+        return f"blame\x00{repo_path}\x00{commit_hash}\x00{file_path}"
+
+
+    def get_blame_info(repo_path: str, commit_hash: str, file_path: str) -> list[int]:
+        """Cached blame lookup — checks cache first, falls back to pygit2."""
+        key = _blame_key(repo_path, commit_hash, file_path)
+        result = cache.get(key)
+        if result is None:
+            result = _blame_uncached(repo_path, commit_hash, file_path)
+            cache.set(key, result)
+        return result
 
 
     @cache.memoize()
@@ -279,7 +289,6 @@ def _(cache, datetime, subprocess):
         return [commits[i] for i in indices]
 
 
-    @cache.memoize(ignore=["progress_bar", "is_script"])
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
@@ -290,14 +299,14 @@ def _(cache, datetime, subprocess):
     ) -> list[tuple[datetime, int]]:
         """Collect raw blame data from sampled commits.
 
-        Builds a flat list of (commit, file) work items and processes them with a
-        single ThreadPoolExecutor. pygit2 (libgit2) replaces subprocess git-blame,
-        eliminating per-file process spawn overhead. Results are cached per
-        (repo, commit, file) so reruns are instant.
+        Splits work into cache hits (resolved instantly in main thread) and cache
+        misses (processed in parallel). Cache writes happen serially in the main
+        thread after each batch completes, eliminating SQLite write contention
+        which caused exponential slowdown under concurrent access.
         """
         repo_path_str = str(repo_path)
 
-        # Phase 1: collect all work items (fast, sequential ls-tree calls)
+        # Phase 1: gather all (commit_hash, commit_date, file_path) work items
         if is_script:
             print("  Gathering file lists...")
         work_items: list[tuple[str, datetime, str]] = []
@@ -307,48 +316,72 @@ def _(cache, datetime, subprocess):
         total_files = len(work_items)
         total_commits = len(sampled_commits)
 
-        if is_script:
-            print(f"  Blaming {total_files} files across {total_commits} commits...")
+        # Phase 2: split into cached vs uncached — cache checks are fast serial reads
+        cached_items: list[tuple[str, datetime, str, list[int]]] = []
+        uncached_items: list[tuple[str, datetime, str]] = []
 
-        # Phase 2: parallel blame — progress per file, not per commit
+        for h, d, f in work_items:
+            result = cache.get(_blame_key(repo_path_str, h, f))
+            if result is not None:
+                cached_items.append((h, d, f, result))
+            else:
+                uncached_items.append((h, d, f))
+
+        n_cached = len(cached_items)
+        n_uncached = len(uncached_items)
+        if is_script:
+            print(f"  {n_cached} files cached, {n_uncached} need blaming across {total_commits} commits...")
+
         raw_data: list[tuple[datetime, int]] = []
         done_files = 0
         done_commits: set[str] = set()
 
-        executor = ThreadPoolExecutor(max_workers=workers)
-        futures = {
-            executor.submit(get_blame_info, repo_path_str, h, f): (h, d)
-            for h, d, f in work_items
-        }
-        pending = set(futures)
-        try:
-            while pending:
-                # Short timeout so KeyboardInterrupt can be caught between polls
-                done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
-                for future in done:
-                    commit_hash, commit_date = futures[future]
-                    for ts in future.result():
-                        raw_data.append((commit_date, ts))
-                    done_files += 1
-                    prev_commits_done = len(done_commits)
-                    done_commits.add(commit_hash)
-                    new_commit_done = len(done_commits) > prev_commits_done
-                    if progress_bar:
-                        pct = int(done_files / total_files * 100) if total_files else 100
-                        progress_bar.update(
-                            title=f"Blamed {done_files}/{total_files} files "
-                                  f"({len(done_commits)}/{total_commits} commits, {pct}%)"
-                        )
-                    if is_script and new_commit_done:
-                        pct = int(done_files / total_files * 100) if total_files else 100
-                        print(f"  [{len(done_commits)}/{total_commits} commits, {done_files}/{total_files} files] {pct}%", flush=True)
-        except KeyboardInterrupt:
-            if is_script:
-                print("\n  Interrupted.", flush=True)
-            import os
-            os._exit(1)
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+        def _record(commit_hash: str, commit_date: datetime, timestamps: list[int]) -> None:
+            nonlocal done_files
+            for ts in timestamps:
+                raw_data.append((commit_date, ts))
+            done_files += 1
+            prev = len(done_commits)
+            done_commits.add(commit_hash)
+            new_commit = len(done_commits) > prev
+            if progress_bar:
+                pct = int(done_files / total_files * 100) if total_files else 100
+                progress_bar.update(
+                    title=f"Blamed {done_files}/{total_files} files "
+                          f"({len(done_commits)}/{total_commits} commits, {pct}%)"
+                )
+            if is_script and new_commit:
+                pct = int(done_files / total_files * 100) if total_files else 100
+                print(f"  [{len(done_commits)}/{total_commits} commits, {done_files}/{total_files} files] {pct}%", flush=True)
+
+        # Phase 3: drain cached hits instantly
+        for h, d, f, result in cached_items:
+            _record(h, d, result)
+
+        # Phase 4: parallel blame for cache misses; write cache serially in main thread
+        if uncached_items:
+            executor = ThreadPoolExecutor(max_workers=workers)
+            futures = {
+                executor.submit(_blame_uncached, repo_path_str, h, f): (h, d, f)
+                for h, d, f in uncached_items
+            }
+            pending = set(futures)
+            try:
+                while pending:
+                    done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        h, d, f = futures[future]
+                        result = future.result()
+                        # Write to cache in main thread — no contention
+                        cache.set(_blame_key(repo_path_str, h, f), result)
+                        _record(h, d, result)
+            except KeyboardInterrupt:
+                if is_script:
+                    print("\n  Interrupted.", flush=True)
+                import os
+                os._exit(1)
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
 
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
