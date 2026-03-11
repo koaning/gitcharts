@@ -428,28 +428,49 @@ def _(datetime, granularity_select, pl, raw_df):
 
 
 @app.cell
-def _(mo, repo_params, repo_url_input):
-    import httpx
-
+def _(mo, repo_params, repo_url_input, repo_path, subprocess):
+    # Determine repo name
     _repo = repo_params.repo if mo.app_meta().mode == "script" else repo_url_input.value
-    parts = _repo.split("/")
-    repo_name = parts[-2] if _repo.endswith("/") else parts[-1]
+    parts = _repo.rstrip("/").split("/")
+    repo_name = parts[-1].replace(".git", "")
 
-    res = httpx.get(f"https://pypi.org/pypi/{repo_name}/json").json()
+    # Collect git tags and their dates
+    try:
+        output = subprocess.check_output(
+            ["git", "-C", str(repo_path), "tag", "--format=%(refname:short) %(creatordate:iso8601)"],
+            text=True,
+        )
+    except subprocess.CalledProcessError:
+        output = ""
+
+    res = {"releases": {}}
+
+    for line in output.splitlines():
+        try:
+            tag, date = line.split(" ", 1)
+            res["releases"][tag] = [{"upload_time": date}]
+        except ValueError:
+            pass
+
     return repo_name, res
-
 
 @app.cell
 def _(alt, pl, res):
     _version_data = [
         {"version": key, "datetime": value[0]["upload_time"]}
-        for key, value in res["releases"].items()
+        for key, value in res.get("releases", {}).items()
         if key.endswith(".0") and key != "0.0.0" and len(value) > 0
     ]
     df_versions = pl.DataFrame(
         _version_data,
         schema={"version": pl.Utf8, "datetime": pl.Utf8},
-    ).with_columns(datetime=pl.col("datetime").str.to_datetime())
+    ).with_columns(
+        datetime=pl.col("datetime").str.strptime(
+            pl.Datetime,
+            "%Y-%m-%d %H:%M:%S %z",
+            strict=False
+        )
+    )
 
     base_chart = alt.Chart(df_versions)
 
