@@ -183,7 +183,7 @@ def _(subprocess):
 def _(cache, datetime, subprocess):
     import threading
     import pygit2
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
     _thread_local = threading.local()
 
@@ -314,34 +314,39 @@ def _(cache, datetime, subprocess):
         raw_data: list[tuple[datetime, int]] = []
         done_files = 0
         done_commits: set[str] = set()
+
         executor = ThreadPoolExecutor(max_workers=workers)
+        futures = {
+            executor.submit(get_blame_info, repo_path_str, h, f): (h, d)
+            for h, d, f in work_items
+        }
+        pending = set(futures)
         try:
-            futures = {
-                executor.submit(get_blame_info, repo_path_str, h, f): (h, d)
-                for h, d, f in work_items
-            }
-            for future in as_completed(futures):
-                commit_hash, commit_date = futures[future]
-                for ts in future.result():
-                    raw_data.append((commit_date, ts))
-                done_files += 1
-                done_commits.add(commit_hash)
-                if progress_bar:
-                    pct = int(done_files / total_files * 100) if total_files else 100
-                    n_commits_done = len(done_commits)
-                    progress_bar.update(
-                        title=f"Blamed {done_files}/{total_files} files "
-                              f"({n_commits_done}/{total_commits} commits, {pct}%)"
-                    )
-                if is_script and done_files % max(1, total_files // 40) == 0:
-                    pct = int(done_files / total_files * 100) if total_files else 100
-                    print(f"  [{done_files}/{total_files} files, {len(done_commits)}/{total_commits} commits] {pct}%")
+            while pending:
+                # Short timeout so KeyboardInterrupt can be caught between polls
+                done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+                for future in done:
+                    commit_hash, commit_date = futures[future]
+                    for ts in future.result():
+                        raw_data.append((commit_date, ts))
+                    done_files += 1
+                    done_commits.add(commit_hash)
+                    if progress_bar:
+                        pct = int(done_files / total_files * 100) if total_files else 100
+                        progress_bar.update(
+                            title=f"Blamed {done_files}/{total_files} files "
+                                  f"({len(done_commits)}/{total_commits} commits, {pct}%)"
+                        )
+                    if is_script and done_files % max(1, total_files // 40) == 0:
+                        pct = int(done_files / total_files * 100) if total_files else 100
+                        print(f"  [{done_files}/{total_files} files, {len(done_commits)}/{total_commits} commits] {pct}%")
         except KeyboardInterrupt:
-            print("\n  Interrupted — shutting down workers...")
-            executor.shutdown(wait=False, cancel_futures=True)
-            raise
+            if is_script:
+                print("\n  Interrupted.", flush=True)
+            import os
+            os._exit(1)
         finally:
-            executor.shutdown(wait=False)
+            executor.shutdown(wait=False, cancel_futures=True)
 
         return raw_data
     return collect_blame_data, get_commit_list, sample_commits
