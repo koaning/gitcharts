@@ -1,6 +1,6 @@
 // Application State
 const state = {
-  repos: [], // Will be loaded from repos.json
+  repos: {}, // Will be loaded from repos.json: {name: [variants]}
   currentRepo: null,
   currentVariant: "clean",
   invertLayers: false,
@@ -9,8 +9,8 @@ const state = {
 
 // DOM Elements
 let repoSelect;
-let cleanRadio;
-let versionedRadio;
+let showVersionsCheckbox;
+let versionToggle;
 let invertCheckbox;
 let chartContainer;
 
@@ -23,9 +23,14 @@ let chartContainer;
  * Format: #repo-name/variant
  * Example: #human-learn/versioned
  */
+function repoNames() {
+  return Object.keys(state.repos);
+}
+
 function parseURL() {
   const hash = window.location.hash.slice(1); // Remove the '#'
-  const defaultRepo = state.repos[0] || "scikit-lego";
+  const names = repoNames();
+  const defaultRepo = names[0] || "scikit-lego";
 
   if (!hash) {
     return {
@@ -39,12 +44,11 @@ function parseURL() {
   const variant = parts[1] || "clean";
 
   // Validate repo exists in loaded repos
-  const validRepo = state.repos.includes(repo) ? repo : defaultRepo;
+  const validRepo = names.includes(repo) ? repo : defaultRepo;
 
-  // Validate variant is clean or versioned
-  const validVariant = ["clean", "versioned"].includes(variant)
-    ? variant
-    : "clean";
+  // Validate variant is available for this repo
+  const availableVariants = state.repos[validRepo] || ["clean"];
+  const validVariant = availableVariants.includes(variant) ? variant : "clean";
 
   return {
     repo: validRepo,
@@ -196,11 +200,18 @@ function updateDropdown() {
  * Update toggle selection
  */
 function updateToggle() {
-  if (state.currentVariant === "clean") {
-    cleanRadio.checked = true;
-  } else {
-    versionedRadio.checked = true;
+  const variants = state.repos[state.currentRepo] || ["clean"];
+  const hasVersioned = variants.includes("versioned");
+
+  versionToggle.style.display = hasVersioned ? "" : "none";
+
+  if (!hasVersioned && state.currentVariant === "versioned") {
+    state.currentVariant = "clean";
+    showVersionsCheckbox.checked = false;
+    updateURL();
   }
+
+  showVersionsCheckbox.checked = state.currentVariant === "versioned";
 }
 
 /**
@@ -220,6 +231,7 @@ function updateUI() {
  */
 function onRepoChange(event) {
   state.currentRepo = event.target.value;
+  updateToggle();
   updateURL();
   updateChart();
 }
@@ -228,7 +240,7 @@ function onRepoChange(event) {
  * Handle variant toggle change
  */
 function onVariantChange(event) {
-  state.currentVariant = event.target.value;
+  state.currentVariant = event.target.checked ? "versioned" : "clean";
   updateURL();
   updateChart();
 }
@@ -265,11 +277,26 @@ async function loadRepos() {
     if (!response.ok) {
       throw new Error(`Failed to load repos: ${response.status}`);
     }
-    return await response.json();
+    const data = await response.json();
+
+    // Handle legacy array format: ["repo1", "repo2"]
+    if (Array.isArray(data)) {
+      const obj = {};
+      await Promise.all(
+        data.map(async (repo) => {
+          const variants = ["clean"];
+          const res = await fetch(`charts/${repo}-versioned.json`, { method: "HEAD" });
+          if (res.ok) variants.push("versioned");
+          obj[repo] = variants;
+        })
+      );
+      return obj;
+    }
+
+    return data;
   } catch (error) {
     console.error("Error loading repos:", error);
-    // Fallback to empty array
-    return [];
+    return {};
   }
 }
 
@@ -279,7 +306,7 @@ async function loadRepos() {
 function populateDropdown() {
   repoSelect.innerHTML = "";
 
-  state.repos.forEach((repo) => {
+  repoNames().forEach((repo) => {
     const option = document.createElement("option");
     option.value = repo;
     option.textContent = repo;
@@ -293,8 +320,8 @@ function populateDropdown() {
 async function init() {
   // Get DOM elements
   repoSelect = document.getElementById("repo-select");
-  cleanRadio = document.getElementById("clean");
-  versionedRadio = document.getElementById("versioned");
+  showVersionsCheckbox = document.getElementById("show-versions");
+  versionToggle = document.getElementById("version-toggle");
   invertCheckbox = document.getElementById("invert-layers");
   chartContainer = document.getElementById("chart-container");
 
@@ -314,8 +341,7 @@ async function init() {
 
   // Set up event listeners
   repoSelect.addEventListener("change", onRepoChange);
-  cleanRadio.addEventListener("change", onVariantChange);
-  versionedRadio.addEventListener("change", onVariantChange);
+  showVersionsCheckbox.addEventListener("change", onVariantChange);
   invertCheckbox.addEventListener("change", onInvertChange);
   window.addEventListener("popstate", onPopState);
 

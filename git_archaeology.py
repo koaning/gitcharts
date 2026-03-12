@@ -6,6 +6,8 @@
 #     "altair==6.0.0",
 #     "pydantic>=2.0.0",
 #     "diskcache==5.6.3",
+#     "tenacity>=8.0.0",
+#     "httpx>=0.27.0",
 # ]
 # ///
 
@@ -100,10 +102,15 @@ def _(mo):
 
 @app.cell
 def _(mo):
+    version_source = mo.ui.dropdown(
+        options=["none", "git tags", "pypi"],
+        value="git tags",
+        label="Version source",
+    )
     show_versions = mo.ui.checkbox(label="show versions")
     invert_layers = mo.ui.checkbox(label="invert layers")
-    mo.hstack([show_versions, invert_layers])
-    return invert_layers, show_versions
+    mo.hstack([version_source, show_versions, invert_layers])
+    return invert_layers, show_versions, version_source
 
 
 @app.cell
@@ -115,6 +122,7 @@ def _():
         repo: str = Field(description="Repository URL (HTTPS)")
         samples: int = Field(default=100, description="Number of commits to sample")
         file_extensions: str = Field(default=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md", description="Comma-separated file extensions to analyze")
+        version_source: str = Field(default="git tags", description="Version source: none, git tags, or pypi")
 
     return PydanticUndefined, RepoParams
 
@@ -353,6 +361,9 @@ def _(
 
     # Clone or use cached repo
     repo_url = repo_params.repo if mo.app_meta().mode == "script" else params_form.value["repo_url"].strip()
+    # Accept short GitHub references like "koaning/scikit-lego"
+    if "/" in repo_url and not repo_url.startswith(("http://", "https://", "git@")):
+        repo_url = f"https://github.com/{repo_url}"
     with mo.status.spinner(f"Cloning/updating repository..."):
         repo_path = clone_or_update_repo(repo_url)
 
@@ -430,53 +441,71 @@ def _(granularity_select, pl, raw_df):
 
 
 @app.cell
-def _(mo, params_form, repo_params, repo_path, subprocess):
+def _(datetime, mo, params_form, repo_params, repo_path, subprocess, version_source):
     import re as _re
 
     _repo = repo_params.repo if mo.app_meta().mode == "script" else params_form.value["repo_url"]
     parts = _repo.rstrip("/").split("/")
     repo_name = parts[-1].replace(".git", "")
 
-    # Get version tags from the local clone instead of PyPI (works offline, any repo)
-    _result = subprocess.run(
-        ["git", "for-each-ref", "--sort=creatordate",
-         "--format=%(refname:short)|%(creatordate:unix)", "refs/tags"],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    # Match semver tags like v1.2.0 or 1.2.0, only show x.y.0 releases to avoid clutter
-    _VERSION_RE = _re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.0$")
-    tag_lines = [
-        line for line in _result.stdout.strip().split("\n")
-        if line and _VERSION_RE.match(line.split("|")[0])
-    ]
-    return repo_name, tag_lines
+    _source = repo_params.version_source if mo.app_meta().mode == "script" else version_source.value
+    version_rows = []
+
+    if _source == "git tags":
+        _result = subprocess.run(
+            ["git", "for-each-ref", "--sort=creatordate",
+             "--format=%(refname:short)|%(creatordate:unix)", "refs/tags"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        _VERSION_RE = _re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.0$")
+        for _line in _result.stdout.strip().split("\n"):
+            if _line and _VERSION_RE.match(_line.split("|")[0]):
+                _tag, _ts = _line.split("|", 1)
+                if _ts.strip():
+                    version_rows.append({"version": _tag, "datetime": datetime.fromtimestamp(int(_ts))})
+
+    elif _source == "pypi":
+        import httpx
+        from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
+        )
+        def _fetch_pypi(name):
+            return httpx.get(f"https://pypi.org/pypi/{name}/json")
+
+        try:
+            _resp = _fetch_pypi(repo_name)
+            if _resp.status_code == 200:
+                for _key, _value in _resp.json().get("releases", {}).items():
+                    if _key.endswith(".0") and _key != "0.0.0" and len(_value) > 0:
+                        version_rows.append({"version": _key, "datetime": datetime.fromisoformat(_value[0]["upload_time"])})
+        except Exception:
+            pass
+
+    return repo_name, version_rows
 
 
 @app.cell
-def _(alt, datetime, pl, tag_lines):
-    _rows = []
-    for _line in tag_lines:
-        _tag, _ts = _line.split("|", 1)
-        if _ts.strip():
-            _rows.append({"version": _tag, "datetime": datetime.fromtimestamp(int(_ts))})
+def _(alt, pl, version_rows):
+    date_lines = None
+    date_text = None
+    if version_rows:
+        df_versions = pl.DataFrame(version_rows, schema={"version": pl.Utf8, "datetime": pl.Datetime})
+        base_chart = alt.Chart(df_versions)
 
-    df_versions = pl.DataFrame(
-        _rows,
-        schema={"version": pl.Utf8, "datetime": pl.Datetime},
-    )
+        date_lines = base_chart.mark_rule(strokeDash=[5, 5]).encode(
+            x=alt.X("datetime:T", title="Date"), tooltip=["version:N", "datetime:T"]
+        )
 
-    base_chart = alt.Chart(df_versions)
-
-    date_lines = base_chart.mark_rule(strokeDash=[5, 5]).encode(
-        x=alt.X("datetime:T", title="Date"), tooltip=["version:N", "datetime:T"]
-    )
-
-    date_text = base_chart.mark_text(angle=270, align="left", dx=15, dy=0).encode(
-        x="datetime:T", y=alt.value(10), text="version:N"
-    )
+        date_text = base_chart.mark_text(angle=270, align="left", dx=15, dy=0).encode(
+            x="datetime:T", y=alt.value(10), text="version:N"
+        )
     return date_lines, date_text
 
 
@@ -510,7 +539,7 @@ def _(
     )
 
     out = chart
-    if show_versions.value:
+    if show_versions.value and date_lines is not None:
         out += date_lines + date_text
 
     out = out.properties(
@@ -531,16 +560,17 @@ def _(Path, alt, chart, date_lines, date_text, out, repo_name):
     clean_path.write_text(out.to_json())
 
     versioned_path = Path("charts") / (repo_name + "-versioned.json")
-    versioned_chart = (
-        (chart + date_lines + date_text)
-        .properties(
-            title="Code Archaeology: Lines of Code by Period Added",
-            width=800,
-            height=500,
+    if date_lines is not None:
+        versioned_chart = (
+            (chart + date_lines + date_text)
+            .properties(
+                title="Code Archaeology: Lines of Code by Period Added",
+                width=800,
+                height=500,
+            )
+            .to_dict()
         )
-        .to_dict()
-    )
-    versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
+        versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
     return
 
 

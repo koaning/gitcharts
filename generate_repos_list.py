@@ -15,26 +15,28 @@ def main():
     # Find all -clean.json files to get unique repo names
     clean_files = list(charts_dir.glob("*-clean.json"))
 
-    repos = []
+    repos = {}
     for file in clean_files:
         # Extract repo name (everything before -clean.json)
         repo_name = file.stem.replace("-clean", "")
+        variants = ["clean"]
 
-        # Check that versioned variant also exists
         versioned_file = charts_dir / f"{repo_name}-versioned.json"
         if versioned_file.exists():
-            repos.append(repo_name)
+            variants.append("versioned")
+
+        repos[repo_name] = variants
 
     # Sort by name for consistency
-    repos.sort()
+    repos = dict(sorted(repos.items()))
 
     # Write to charts/repos.json
     output_path = charts_dir / "repos.json"
     output_path.write_text(json.dumps(repos, indent=2))
 
     print(f"Generated {output_path} with {len(repos)} repositories")
-    for repo in repos:
-        print(f"  - {repo}")
+    for repo, variants in repos.items():
+        print(f"  - {repo} ({', '.join(variants)})")
 
 
 if __name__ == "__main__":
