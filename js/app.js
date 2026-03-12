@@ -3,6 +3,7 @@ const state = {
   repos: [], // Will be loaded from repos.json
   currentRepo: null,
   currentVariant: "clean",
+  invertLayers: false,
   loadedCharts: {}, // Cache: {repo-variant: vegaSpec}
 };
 
@@ -10,6 +11,7 @@ const state = {
 let repoSelect;
 let cleanRadio;
 let versionedRadio;
+let invertCheckbox;
 let chartContainer;
 
 // ========================================
@@ -97,6 +99,18 @@ async function loadChart(repo, variant) {
 /**
  * Render chart using Vega-Embed
  */
+/**
+ * Apply invert layers transformation to a spec (deep clone to avoid mutating cache)
+ */
+function applyInvert(spec) {
+  const copy = JSON.parse(JSON.stringify(spec));
+  const encoding = copy.encoding || (copy.layer && copy.layer[0] && copy.layer[0].encoding);
+  if (encoding && encoding.order) {
+    encoding.order.sort = state.invertLayers ? "descending" : "ascending";
+  }
+  return copy;
+}
+
 async function renderChart(spec) {
   const embedOpt = {
     mode: "vega-lite",
@@ -161,7 +175,7 @@ async function updateChart() {
 
   try {
     const spec = await loadChart(state.currentRepo, state.currentVariant);
-    await renderChart(spec);
+    await renderChart(applyInvert(spec));
   } catch (error) {
     showError(state.currentRepo, state.currentVariant);
   }
@@ -220,6 +234,14 @@ function onVariantChange(event) {
 }
 
 /**
+ * Handle invert layers toggle
+ */
+function onInvertChange(event) {
+  state.invertLayers = event.target.checked;
+  updateChart();
+}
+
+/**
  * Handle browser back/forward navigation
  */
 function onPopState() {
@@ -273,6 +295,7 @@ async function init() {
   repoSelect = document.getElementById("repo-select");
   cleanRadio = document.getElementById("clean");
   versionedRadio = document.getElementById("versioned");
+  invertCheckbox = document.getElementById("invert-layers");
   chartContainer = document.getElementById("chart-container");
 
   // Load repositories list
@@ -293,6 +316,7 @@ async function init() {
   repoSelect.addEventListener("change", onRepoChange);
   cleanRadio.addEventListener("change", onVariantChange);
   versionedRadio.addEventListener("change", onVariantChange);
+  invertCheckbox.addEventListener("change", onInvertChange);
   window.addEventListener("popstate", onPopState);
 
   // Load and render initial chart
