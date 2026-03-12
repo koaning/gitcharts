@@ -260,9 +260,14 @@ async function loadRepos() {
     // Handle legacy array format: ["repo1", "repo2"]
     if (Array.isArray(data)) {
       const obj = {};
-      data.forEach((repo) => {
-        obj[repo] = ["clean", "versioned"];
-      });
+      await Promise.all(
+        data.map(async (repo) => {
+          const variants = ["clean"];
+          const res = await fetch(`charts/${repo}-versioned.json`, { method: "HEAD" });
+          if (res.ok) variants.push("versioned");
+          obj[repo] = variants;
+        })
+      );
       return obj;
     }
 
