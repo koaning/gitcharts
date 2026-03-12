@@ -198,6 +198,7 @@ def _(cache, datetime, subprocess):
             cwd=repo_path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         if result.returncode != 0:
             raise RuntimeError(f"Git command failed: {result.stderr}")
