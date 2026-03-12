@@ -3,6 +3,7 @@ const state = {
   repos: {}, // Will be loaded from repos.json: {name: [variants]}
   currentRepo: null,
   currentVariant: "clean",
+  invertLayers: false,
   loadedCharts: {}, // Cache: {repo-variant: vegaSpec}
 };
 
@@ -10,6 +11,7 @@ const state = {
 let repoSelect;
 let showVersionsCheckbox;
 let versionToggle;
+let invertCheckbox;
 let chartContainer;
 
 // ========================================
@@ -101,6 +103,18 @@ async function loadChart(repo, variant) {
 /**
  * Render chart using Vega-Embed
  */
+/**
+ * Apply invert layers transformation to a spec (deep clone to avoid mutating cache)
+ */
+function applyInvert(spec) {
+  const copy = JSON.parse(JSON.stringify(spec));
+  const encoding = copy.encoding || (copy.layer && copy.layer[0] && copy.layer[0].encoding);
+  if (encoding && encoding.order) {
+    encoding.order.sort = state.invertLayers ? "descending" : "ascending";
+  }
+  return copy;
+}
+
 async function renderChart(spec) {
   const embedOpt = {
     mode: "vega-lite",
@@ -165,7 +179,7 @@ async function updateChart() {
 
   try {
     const spec = await loadChart(state.currentRepo, state.currentVariant);
-    await renderChart(spec);
+    await renderChart(applyInvert(spec));
   } catch (error) {
     showError(state.currentRepo, state.currentVariant);
   }
@@ -228,6 +242,14 @@ function onRepoChange(event) {
 function onVariantChange(event) {
   state.currentVariant = event.target.checked ? "versioned" : "clean";
   updateURL();
+  updateChart();
+}
+
+/**
+ * Handle invert layers toggle
+ */
+function onInvertChange(event) {
+  state.invertLayers = event.target.checked;
   updateChart();
 }
 
@@ -300,6 +322,7 @@ async function init() {
   repoSelect = document.getElementById("repo-select");
   showVersionsCheckbox = document.getElementById("show-versions");
   versionToggle = document.getElementById("version-toggle");
+  invertCheckbox = document.getElementById("invert-layers");
   chartContainer = document.getElementById("chart-container");
 
   // Load repositories list
@@ -319,6 +342,7 @@ async function init() {
   // Set up event listeners
   repoSelect.addEventListener("change", onRepoChange);
   showVersionsCheckbox.addEventListener("change", onVariantChange);
+  invertCheckbox.addEventListener("change", onInvertChange);
   window.addEventListener("popstate", onPopState);
 
   // Load and render initial chart
