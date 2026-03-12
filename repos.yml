@@ -11,8 +11,6 @@ repos:
     pypi_name: sentence-transformers
   - repo: scikit-learn/scikit-learn
     pypi_name: scikit-learn
-  - repo: pytorch/pytorch
-    pypi_name: torch
   - repo: pandas-dev/pandas
   - repo: pola-rs/polars
   - repo: wandb/wandb
