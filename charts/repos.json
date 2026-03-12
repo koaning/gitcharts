@@ -1,10 +1,34 @@
-[
-  "datasette",
-  "diskcache",
-  "django",
-  "marimo",
-  "narwhals",
-  "scikit-lego",
-  "sentence-transformers",
-  "wandb"
-]
+{
+  "datasette": [
+    "clean",
+    "versioned"
+  ],
+  "diskcache": [
+    "clean",
+    "versioned"
+  ],
+  "django": [
+    "clean",
+    "versioned"
+  ],
+  "marimo": [
+    "clean",
+    "versioned"
+  ],
+  "narwhals": [
+    "clean",
+    "versioned"
+  ],
+  "scikit-lego": [
+    "clean",
+    "versioned"
+  ],
+  "sentence-transformers": [
+    "clean",
+    "versioned"
+  ],
+  "wandb": [
+    "clean",
+    "versioned"
+  ]
+}
