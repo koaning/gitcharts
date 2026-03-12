@@ -123,6 +123,7 @@ def _():
         samples: int = Field(default=200, description="Number of commits to sample")
         file_extensions: str = Field(default=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md,.pyx,.cu,.rst", description="Comma-separated file extensions to analyze")
         version_source: str = Field(default="git tags", description="Version source: none, git tags, or pypi")
+        pypi_name: str = Field(default="", description="PyPI package name (defaults to repo name)")
 
     return PydanticUndefined, RepoParams
 
@@ -479,8 +480,9 @@ def _(datetime, mo, params_form, repo_params, repo_path, subprocess, version_sou
         def _fetch_pypi(name):
             return httpx.get(f"https://pypi.org/pypi/{name}/json")
 
+        _pypi_name = (repo_params.pypi_name if mo.app_meta().mode == "script" else "") or repo_name
         try:
-            _resp = _fetch_pypi(repo_name)
+            _resp = _fetch_pypi(_pypi_name)
             if _resp.status_code == 200:
                 for _key, _value in _resp.json().get("releases", {}).items():
                     if _key.endswith(".0") and _key != "0.0.0" and len(_value) > 0:

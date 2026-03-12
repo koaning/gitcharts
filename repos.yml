@@ -1,0 +1,18 @@
+repos:
+  - repo: simonw/datasette
+  - repo: grantjenks/python-diskcache
+    pypi_name: diskcache
+  - repo: django/django
+  - repo: marimo-team/marimo
+  - repo: narwhals-dev/narwhals
+  - repo: koaning/scikit-lego
+    pypi_name: scikit-lego
+  - repo: huggingface/sentence-transformers
+    pypi_name: sentence-transformers
+  - repo: scikit-learn/scikit-learn
+    pypi_name: scikit-learn
+  - repo: pytorch/pytorch
+    pypi_name: torch
+  - repo: pandas-dev/pandas
+  - repo: pola-rs/polars
+  - repo: wandb/wandb

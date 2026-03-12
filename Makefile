@@ -4,8 +4,5 @@ build:
 	uv run generate_repos_list.py
 
 update:
-	@grep -v '^\s*#' repos.txt | grep -v '^\s*$$' | while read repo; do \
-		echo "Updating $$repo..."; \
-		uv run git_archaeology.py --repo "$$repo" --version_source pypi; \
-	done
+	uv run update_charts.py
 	$(MAKE) build
