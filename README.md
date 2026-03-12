@@ -28,6 +28,8 @@ uv run git_archaeology.py --repo https://github.com/marimo-team/marimo --samples
 
 - `--repo` (required) — Repository URL (HTTPS)
 - `--samples` (optional, default: 100) — Number of commits to sample
+- `--file-extensions` (optional, default: `.py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md`) — Comma-separated file extensions to analyze
+- `--version-source` (optional, default: `git tags`) — Version source: `none`, `git tags`, or `pypi`
 
 After generating charts, run `make build` to update the repository index:
 
