@@ -8,9 +8,8 @@ const state = {
 
 // DOM Elements
 let repoSelect;
-let cleanRadio;
-let versionedRadio;
-let variantToggle;
+let showVersionsCheckbox;
+let versionToggle;
 let chartContainer;
 
 // ========================================
@@ -190,18 +189,15 @@ function updateToggle() {
   const variants = state.repos[state.currentRepo] || ["clean"];
   const hasVersioned = variants.includes("versioned");
 
-  variantToggle.style.display = hasVersioned ? "" : "none";
+  versionToggle.style.display = hasVersioned ? "" : "none";
 
   if (!hasVersioned && state.currentVariant === "versioned") {
     state.currentVariant = "clean";
+    showVersionsCheckbox.checked = false;
     updateURL();
   }
 
-  if (state.currentVariant === "clean") {
-    cleanRadio.checked = true;
-  } else {
-    versionedRadio.checked = true;
-  }
+  showVersionsCheckbox.checked = state.currentVariant === "versioned";
 }
 
 /**
@@ -230,7 +226,7 @@ function onRepoChange(event) {
  * Handle variant toggle change
  */
 function onVariantChange(event) {
-  state.currentVariant = event.target.value;
+  state.currentVariant = event.target.checked ? "versioned" : "clean";
   updateURL();
   updateChart();
 }
@@ -297,9 +293,8 @@ function populateDropdown() {
 async function init() {
   // Get DOM elements
   repoSelect = document.getElementById("repo-select");
-  cleanRadio = document.getElementById("clean");
-  versionedRadio = document.getElementById("versioned");
-  variantToggle = versionedRadio.closest(".btn-group");
+  showVersionsCheckbox = document.getElementById("show-versions");
+  versionToggle = document.getElementById("version-toggle");
   chartContainer = document.getElementById("chart-container");
 
   // Load repositories list
@@ -318,8 +313,7 @@ async function init() {
 
   // Set up event listeners
   repoSelect.addEventListener("change", onRepoChange);
-  cleanRadio.addEventListener("change", onVariantChange);
-  versionedRadio.addEventListener("change", onVariantChange);
+  showVersionsCheckbox.addEventListener("change", onVariantChange);
   window.addEventListener("popstate", onPopState);
 
   // Load and render initial chart
