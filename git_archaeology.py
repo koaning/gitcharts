@@ -40,7 +40,6 @@ def _(mo):
 def _():
     import subprocess
     from datetime import datetime
-    from collections import defaultdict
     import polars as pl
     import altair as alt
     from diskcache import Cache
@@ -119,7 +118,6 @@ def _(granularity_select, mo):
 @app.cell
 def _():
     from pydantic import BaseModel, Field
-    from pydantic_core import PydanticUndefined
 
 
     class RepoParams(BaseModel):
@@ -136,11 +134,11 @@ def _():
             default="", description="PyPI package name (defaults to repo name)"
         )
 
-    return PydanticUndefined, RepoParams
+    return (RepoParams,)
 
 
 @app.cell
-def _(PydanticUndefined, RepoParams, mo):
+def _(RepoParams, mo):
     cli_args = mo.cli_args()
 
     if mo.app_meta().mode == "script":
@@ -148,11 +146,7 @@ def _(PydanticUndefined, RepoParams, mo):
             print("Usage: uv run git_archaeology.py --repo <url> [--samples <n>]")
             print()
             for name, field in RepoParams.model_fields.items():
-                default = (
-                    " (required)"
-                    if field.default is PydanticUndefined
-                    else f" (default: {field.default})"
-                )
+                default = " (required)" if field.is_required() else f" (default: {field.default})"
                 print(f"  --{name:12s} {field.description}{default}")
             exit()
         repo_params = RepoParams(**{k.replace("-", "_"): v for k, v in cli_args.items()})
@@ -170,7 +164,7 @@ def _(subprocess):
     def get_cached_repo_path(repo_url: str) -> Path:
         """Get the cached path for a repo URL, using a hash for uniqueness."""
         repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
-        url_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
+        url_hash = hashlib.md5(repo_url.encode(), usedforsecurity=False).hexdigest()[:8]
         return DOWNLOADS_DIR / f"{repo_name}-{url_hash}"
 
 
@@ -363,7 +357,7 @@ def _(cache, datetime, subprocess):
 
         return raw_data
 
-    return collect_blame_data, get_commit_list, sample_commits
+    return collect_blame_data, get_commit_list, re, sample_commits
 
 
 @app.cell
@@ -479,22 +473,22 @@ def _(
     datetime,
     mo,
     params_form,
+    re,
     repo_params,
     repo_path,
     subprocess,
     version_source,
 ):
-    import re as _re
 
-    _repo = repo_params.repo if mo.app_meta().mode == "script" else params_form.value["repo_url"]
-    parts = _repo.rstrip("/").split("/")
+    repo = repo_params.repo if mo.app_meta().mode == "script" else params_form.value["repo_url"]
+    parts = repo.rstrip("/").split("/")
     repo_name = parts[-1].replace(".git", "")
 
-    _source = repo_params.version_source if mo.app_meta().mode == "script" else version_source.value
+    source = repo_params.version_source if mo.app_meta().mode == "script" else version_source.value
     version_rows = []
 
-    if _source == "git tags":
-        _result = subprocess.run(
+    if source == "git tags":
+        result = subprocess.run(
             [
                 "git",
                 "for-each-ref",
@@ -507,16 +501,16 @@ def _(
             text=True,
             encoding="utf-8",
         )
-        _VERSION_RE = _re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.0$")
-        for _line in _result.stdout.strip().split("\n"):
-            if _line and _VERSION_RE.match(_line.split("|")[0]):
-                _tag, _ts = _line.split("|", 1)
-                if _ts.strip():
+        VERSION_RE = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.0$")
+        for line in result.stdout.strip().split("\n"):
+            if line and VERSION_RE.match(line.split("|")[0]):
+                tag, ts = line.split("|", 1)
+                if ts.strip():
                     version_rows.append(
-                        {"version": _tag, "datetime": datetime.fromtimestamp(int(_ts))}
+                        {"version": tag, "datetime": datetime.fromtimestamp(int(ts))}
                     )
 
-    elif _source == "pypi":
+    elif source == "pypi":
         import httpx
         from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -525,19 +519,19 @@ def _(
             wait=wait_exponential(multiplier=1, min=1, max=10),
             retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
         )
-        def _fetch_pypi(name):
+        def fetch_pypi(name):
             return httpx.get(f"https://pypi.org/pypi/{name}/json")
 
-        _pypi_name = (repo_params.pypi_name if mo.app_meta().mode == "script" else "") or repo_name
+        pypi_name = (repo_params.pypi_name if mo.app_meta().mode == "script" else "") or repo_name
         try:
-            _resp = _fetch_pypi(_pypi_name)
-            if _resp.status_code == 200:
-                for _key, _value in _resp.json().get("releases", {}).items():
-                    if _key.endswith(".0") and _key != "0.0.0" and len(_value) > 0:
+            resp = fetch_pypi(pypi_name)
+            if resp.status_code == 200:
+                for key, value in resp.json().get("releases", {}).items():
+                    if key.endswith(".0") and key != "0.0.0" and len(value) > 0:
                         version_rows.append(
                             {
-                                "version": _key,
-                                "datetime": datetime.fromisoformat(_value[0]["upload_time"]),
+                                "version": key,
+                                "datetime": datetime.fromisoformat(value[0]["upload_time"]),
                             }
                         )
         except Exception:
@@ -627,11 +621,6 @@ def _(Path, alt, chart, date_lines, date_text, out, repo_name):
             .to_dict()
         )
         versioned_path.write_text(alt.Chart.from_dict(versioned_chart).to_json())
-    return
-
-
-@app.cell
-def _():
     return
 
 

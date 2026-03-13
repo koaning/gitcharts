@@ -226,7 +226,7 @@ for _name, _model in items:
     ...
 ```
 
-You have a tendency to overdo `_prefix` variables though. It's a best practice to add these when a conflict is likely to arise, but overdoing it makes the notebook look unpythonic. Please try and avoid that. 
+**Hard rule: never underscore-prefix imports.** If multiple cells need a module, let marimo share it via the return tuple. Only use `_prefix` for loop variables or temporaries that would genuinely collide with another cell's named outputs. Overdoing underscores (e.g. `import re as _re`, `_result = ...`) makes code deeply unpythonic and harder to read for zero benefit.
 
 ## PEP 723 Dependencies
 

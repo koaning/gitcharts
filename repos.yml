@@ -14,3 +14,5 @@ repos:
   - repo: pandas-dev/pandas
   - repo: pola-rs/polars
   - repo: wandb/wandb
+  - repo: apache/airflow
+  - repo: PrefectHQ/prefect
