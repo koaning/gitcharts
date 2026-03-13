@@ -59,31 +59,35 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    params_form = mo.md("""
+    params_form = (
+        mo.md("""
     {repo_url}
 
     {file_extensions}
 
     {sample_count}
-    """).batch(
-        repo_url=mo.ui.text(
-            value="https://github.com/marimo-team/marimo",
-            label="Repository URL (HTTPS)",
-            full_width=True,
-        ),
-        file_extensions=mo.ui.text(
-            value=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md,.pyx,.cu,.rst",
-            label="File extensions to analyze (comma-separated, leave empty for all)",
-            full_width=True,
-        ),
-        sample_count=mo.ui.slider(
-            start=10,
-            stop=200,
-            value=200,
-            step=5,
-            label="Number of commits to sample",
-        ),
-    ).form()
+    """)
+        .batch(
+            repo_url=mo.ui.text(
+                value="https://github.com/marimo-team/marimo",
+                label="Repository URL (HTTPS)",
+                full_width=True,
+            ),
+            file_extensions=mo.ui.text(
+                value=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md,.pyx,.cu,.rst",
+                label="File extensions to analyze (comma-separated, leave empty for all)",
+                full_width=True,
+            ),
+            sample_count=mo.ui.slider(
+                start=10,
+                stop=200,
+                value=200,
+                step=5,
+                label="Number of commits to sample",
+            ),
+        )
+        .form()
+    )
 
     params_form
     return (params_form,)
@@ -96,12 +100,11 @@ def _(mo):
         value="Quarter",
         label="Time granularity",
     )
-    granularity_select
     return (granularity_select,)
 
 
 @app.cell
-def _(mo):
+def _(granularity_select, mo):
     version_source = mo.ui.dropdown(
         options=["none", "git tags", "pypi"],
         value="git tags",
@@ -109,7 +112,7 @@ def _(mo):
     )
     show_versions = mo.ui.checkbox(label="show versions")
     invert_layers = mo.ui.checkbox(label="invert layers")
-    mo.hstack([version_source, show_versions, invert_layers])
+    mo.hstack([version_source, granularity_select, show_versions, invert_layers])
     return invert_layers, show_versions, version_source
 
 
@@ -118,12 +121,20 @@ def _():
     from pydantic import BaseModel, Field
     from pydantic_core import PydanticUndefined
 
+
     class RepoParams(BaseModel):
         repo: str = Field(description="Repository URL (HTTPS)")
         samples: int = Field(default=200, description="Number of commits to sample")
-        file_extensions: str = Field(default=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md,.pyx,.cu,.rst", description="Comma-separated file extensions to analyze")
-        version_source: str = Field(default="git tags", description="Version source: none, git tags, or pypi")
-        pypi_name: str = Field(default="", description="PyPI package name (defaults to repo name)")
+        file_extensions: str = Field(
+            default=".py,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.rb,.md,.pyx,.cu,.rst",
+            description="Comma-separated file extensions to analyze",
+        )
+        version_source: str = Field(
+            default="git tags", description="Version source: none, git tags, or pypi"
+        )
+        pypi_name: str = Field(
+            default="", description="PyPI package name (defaults to repo name)"
+        )
 
     return PydanticUndefined, RepoParams
 
@@ -137,12 +148,14 @@ def _(PydanticUndefined, RepoParams, mo):
             print("Usage: uv run git_archaeology.py --repo <url> [--samples <n>]")
             print()
             for name, field in RepoParams.model_fields.items():
-                default = " (required)" if field.default is PydanticUndefined else f" (default: {field.default})"
+                default = (
+                    " (required)"
+                    if field.default is PydanticUndefined
+                    else f" (default: {field.default})"
+                )
                 print(f"  --{name:12s} {field.description}{default}")
             exit()
-        repo_params = RepoParams(
-            **{k.replace("-", "_"): v for k, v in cli_args.items()}
-        )
+        repo_params = RepoParams(**{k.replace("-", "_"): v for k, v in cli_args.items()})
     return (repo_params,)
 
 
@@ -268,7 +281,9 @@ def _(cache, datetime, subprocess):
         ]
 
 
-    def get_blame_by_blob(blob_hash: str, repo_path: str, commit_hash: str, file_path: str) -> list[int]:
+    def get_blame_by_blob(
+        blob_hash: str, repo_path: str, commit_hash: str, file_path: str
+    ) -> list[int]:
         """Cache blame results by blob hash — identical blob = identical blame."""
         cache_key = ("blame_v1", blob_hash)
         cached = cache.get(cache_key)
@@ -332,7 +347,9 @@ def _(cache, datetime, subprocess):
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(analyze_single_commit, str(repo_path), h, int(d.timestamp()), extensions): (h, d)
+                executor.submit(
+                    analyze_single_commit, str(repo_path), h, int(d.timestamp()), extensions
+                ): (h, d)
                 for h, d in sampled_commits
             }
             for future in as_completed(futures):
@@ -358,10 +375,17 @@ def _(
     repo_params,
     sample_commits,
 ):
-    mo.stop(mo.app_meta().mode != "script" and params_form.value is None, mo.md("Fill in the form above and click **Submit** to start."))
+    mo.stop(
+        mo.app_meta().mode != "script" and params_form.value is None,
+        mo.md("Fill in the form above and click **Submit** to start."),
+    )
 
     # Clone or use cached repo
-    repo_url = repo_params.repo if mo.app_meta().mode == "script" else params_form.value["repo_url"].strip()
+    repo_url = (
+        repo_params.repo
+        if mo.app_meta().mode == "script"
+        else params_form.value["repo_url"].strip()
+    )
     # Accept short GitHub references like "koaning/scikit-lego"
     if "/" in repo_url and not repo_url.startswith(("http://", "https://", "git@")):
         repo_url = f"https://github.com/{repo_url}"
@@ -369,8 +393,14 @@ def _(
         repo_path = clone_or_update_repo(repo_url)
 
     # Parse configuration
-    n_samples = repo_params.samples if mo.app_meta().mode == "script" else params_form.value["sample_count"]
-    extensions_str = repo_params.file_extensions if mo.app_meta().mode == "script" else params_form.value["file_extensions"]
+    n_samples = (
+        repo_params.samples if mo.app_meta().mode == "script" else params_form.value["sample_count"]
+    )
+    extensions_str = (
+        repo_params.file_extensions
+        if mo.app_meta().mode == "script"
+        else params_form.value["file_extensions"]
+    )
     extensions_str = extensions_str.strip()
     extensions = [ext.strip() for ext in extensions_str.split(",")] if extensions_str else None
 
@@ -391,16 +421,22 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
         show_rate=True,
         show_eta=True,
     ) as bar:
-        raw_data = collect_blame_data(repo_path, sampled, extensions, progress_bar=bar, is_script=mo.app_meta().mode == "script")
+        raw_data = collect_blame_data(
+            repo_path,
+            sampled,
+            extensions,
+            progress_bar=bar,
+            is_script=mo.app_meta().mode == "script",
+        )
 
     # Column-oriented construction avoids slow row-by-row datetime inspection
     if raw_data:
         commit_timestamps, line_timestamps = map(list, zip(*raw_data))
     else:
         commit_timestamps, line_timestamps = [], []
-    raw_df = pl.DataFrame({"commit_date": commit_timestamps, "line_timestamp": line_timestamps}).with_columns(
-        pl.from_epoch("commit_date", time_unit="s").alias("commit_date")
-    )
+    raw_df = pl.DataFrame(
+        {"commit_date": commit_timestamps, "line_timestamp": line_timestamps}
+    ).with_columns(pl.from_epoch("commit_date", time_unit="s").alias("commit_date"))
     return (raw_df,)
 
 
@@ -422,14 +458,11 @@ def _(granularity_select, pl, raw_df):
     if granularity == "Year":
         period_expr = ts_col.dt.year().cast(pl.Utf8).alias("period")
     else:  # Quarter
-        period_expr = (
-            pl.concat_str(
-                ts_col.dt.year().cast(pl.Utf8),
-                pl.lit("-Q"),
-                ((ts_col.dt.month() - 1) // 3 + 1).cast(pl.Utf8),
-            )
-            .alias("period")
-        )
+        period_expr = pl.concat_str(
+            ts_col.dt.year().cast(pl.Utf8),
+            pl.lit("-Q"),
+            ((ts_col.dt.month() - 1) // 3 + 1).cast(pl.Utf8),
+        ).alias("period")
 
     df = (
         raw_df.with_columns(period_expr)
@@ -442,7 +475,15 @@ def _(granularity_select, pl, raw_df):
 
 
 @app.cell
-def _(datetime, mo, params_form, repo_params, repo_path, subprocess, version_source):
+def _(
+    datetime,
+    mo,
+    params_form,
+    repo_params,
+    repo_path,
+    subprocess,
+    version_source,
+):
     import re as _re
 
     _repo = repo_params.repo if mo.app_meta().mode == "script" else params_form.value["repo_url"]
@@ -454,8 +495,13 @@ def _(datetime, mo, params_form, repo_params, repo_path, subprocess, version_sou
 
     if _source == "git tags":
         _result = subprocess.run(
-            ["git", "for-each-ref", "--sort=creatordate",
-             "--format=%(refname:short)|%(creatordate:unix)", "refs/tags"],
+            [
+                "git",
+                "for-each-ref",
+                "--sort=creatordate",
+                "--format=%(refname:short)|%(creatordate:unix)",
+                "refs/tags",
+            ],
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -466,7 +512,9 @@ def _(datetime, mo, params_form, repo_params, repo_path, subprocess, version_sou
             if _line and _VERSION_RE.match(_line.split("|")[0]):
                 _tag, _ts = _line.split("|", 1)
                 if _ts.strip():
-                    version_rows.append({"version": _tag, "datetime": datetime.fromtimestamp(int(_ts))})
+                    version_rows.append(
+                        {"version": _tag, "datetime": datetime.fromtimestamp(int(_ts))}
+                    )
 
     elif _source == "pypi":
         import httpx
@@ -486,10 +534,14 @@ def _(datetime, mo, params_form, repo_params, repo_path, subprocess, version_sou
             if _resp.status_code == 200:
                 for _key, _value in _resp.json().get("releases", {}).items():
                     if _key.endswith(".0") and _key != "0.0.0" and len(_value) > 0:
-                        version_rows.append({"version": _key, "datetime": datetime.fromisoformat(_value[0]["upload_time"])})
+                        version_rows.append(
+                            {
+                                "version": _key,
+                                "datetime": datetime.fromisoformat(_value[0]["upload_time"]),
+                            }
+                        )
         except Exception:
             pass
-
     return repo_name, version_rows
 
 
@@ -498,7 +550,9 @@ def _(alt, pl, version_rows):
     date_lines = None
     date_text = None
     if version_rows:
-        df_versions = pl.DataFrame(version_rows, schema={"version": pl.Utf8, "datetime": pl.Datetime})
+        df_versions = pl.DataFrame(
+            version_rows, schema={"version": pl.Utf8, "datetime": pl.Datetime}
+        )
         base_chart = alt.Chart(df_versions)
 
         date_lines = base_chart.mark_rule(strokeDash=[5, 5]).encode(

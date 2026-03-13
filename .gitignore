@@ -1,4 +1,5 @@
 .downloads/
 __marimo__/
+__pycache__/
 repo-cache
 git-research
