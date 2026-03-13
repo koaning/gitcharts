@@ -5,7 +5,7 @@ There are multiple ways to use SQL in marimo. Under the hood, a SQL cell is just
 def _(df, mo):
     grouped = mo.sql(
         f"""
-        SELECT category, MEAN(value) as mean FROM df GROUP BY category ORDER BY mean;
+        SELECT category, AVG(value) as mean FROM df GROUP BY category ORDER BY mean;
         """,
         output=False
     )
@@ -22,7 +22,7 @@ def sql(query: str, *, output: bool=True, engine: Optional[DBAPIConnection]=None
 
 Typically a `sql` call returns a polars dataframe, but the user can configure pandas as an alternative. 
 
-Notice how a query string goes in with SQL and how you can pass a specific database engine. 
+Notice how a query string goes in with SQL and how you can pass a specific database engine. Be aware that different SQL engines may have different SQL dialects. 
 
 ## SQLAlchemy
 
