@@ -187,6 +187,13 @@ def _(subprocess):
                 capture_output=True,
                 check=True,
             )
+
+        # Respect .git-blame-ignore-revs if the repo has one
+        subprocess.run(
+            ["git", "config", "blame.ignoreRevsFile", ".git-blame-ignore-revs"],
+            cwd=repo_path,
+            capture_output=True,
+        )
         return repo_path
 
     return Path, clone_or_update_repo
