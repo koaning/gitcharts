@@ -42,9 +42,10 @@ def _():
     from datetime import datetime
     import polars as pl
     import altair as alt
+    alt.data_transformers.disable_max_rows()
     from diskcache import Cache
 
-    cache = Cache("git-research")
+    cache = Cache("git-research", timeout=300)
     return alt, cache, datetime, pl, subprocess
 
 
@@ -196,11 +197,11 @@ def _(subprocess):
         )
         return repo_path
 
-    return Path, clone_or_update_repo
+    return Path, clone_or_update_repo, hashlib
 
 
 @app.cell(hide_code=True)
-def _(cache, datetime, subprocess):
+def _(Path, cache, datetime, hashlib, pl, subprocess):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import re
 
@@ -208,7 +209,7 @@ def _(cache, datetime, subprocess):
     TIMESTAMP_PATTERN = re.compile(r"\(.*?\s+(\d{10})\s+[+-]\d{4}\s+\d+\)")
 
     # Single shared pool for file-level blame — avoids spinning up/down per commit
-    _file_executor = ThreadPoolExecutor(max_workers=64)
+    _file_executor = ThreadPoolExecutor(max_workers=32)
 
 
     def run_git_command(cmd: list[str], repo_path: str) -> str:
@@ -332,7 +333,14 @@ def _(cache, datetime, subprocess):
         return results
 
 
-    @cache.memoize(ignore=["progress_bar", "is_script"])
+    def _parquet_dir_for_run(repo_path, sampled_commits, extensions):
+        """Deterministic directory for parquet chunks based on run parameters."""
+        key = repr((repo_path, [(h, d.isoformat()) for h, d in sampled_commits], extensions))
+        run_hash = hashlib.sha256(key.encode()).hexdigest()[:12]
+        out = Path("git-research") / "parquet-chunks" / run_hash
+        out.mkdir(parents=True, exist_ok=True)
+        return out
+
     def collect_blame_data(
         repo_path: str,
         sampled_commits: list[tuple[str, datetime]],
@@ -340,9 +348,9 @@ def _(cache, datetime, subprocess):
         progress_bar=None,
         is_script: bool = False,
         max_workers: int = 32,
-    ) -> list[tuple[int, int]]:
-        """Collect raw blame data from sampled commits in parallel."""
-        raw_data = []
+    ) -> Path:
+        """Collect raw blame data, spilling each commit to a parquet file."""
+        parquet_dir = _parquet_dir_for_run(repo_path, sampled_commits, extensions)
         total = len(sampled_commits)
         done = 0
 
@@ -360,9 +368,17 @@ def _(cache, datetime, subprocess):
                     progress_bar.update(title=f"Analyzed {commit_hash[:8]}...")
                 if is_script:
                     print(f"  [{done}/{total}] Analyzed {commit_hash[:8]}")
-                raw_data.extend(future.result())
+                out_path = parquet_dir / f"{commit_hash}.parquet"
+                if not out_path.exists():
+                    rows = future.result()
+                    if rows:
+                        commit_ts, line_ts = zip(*rows)
+                        pl.DataFrame({
+                            "commit_date": list(commit_ts),
+                            "line_timestamp": list(line_ts),
+                        }).write_parquet(out_path)
 
-        return raw_data
+        return parquet_dir
 
     return collect_blame_data, get_commit_list, re, sample_commits
 
@@ -422,7 +438,7 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
         show_rate=True,
         show_eta=True,
     ) as bar:
-        raw_data = collect_blame_data(
+        parquet_dir = collect_blame_data(
             repo_path,
             sampled,
             extensions,
@@ -430,14 +446,13 @@ def _(collect_blame_data, extensions, mo, pl, repo_path, sampled):
             is_script=mo.app_meta().mode == "script",
         )
 
-    # Column-oriented construction avoids slow row-by-row datetime inspection
-    if raw_data:
-        commit_timestamps, line_timestamps = map(list, zip(*raw_data))
+    parquet_files = list(parquet_dir.glob("*.parquet"))
+    if parquet_files:
+        raw_df = pl.read_parquet(parquet_files).with_columns(
+            pl.from_epoch("commit_date", time_unit="s").alias("commit_date")
+        )
     else:
-        commit_timestamps, line_timestamps = [], []
-    raw_df = pl.DataFrame(
-        {"commit_date": commit_timestamps, "line_timestamp": line_timestamps}
-    ).with_columns(pl.from_epoch("commit_date", time_unit="s").alias("commit_date"))
+        raw_df = pl.DataFrame({"commit_date": pl.Series([], dtype=pl.Datetime), "line_timestamp": pl.Series([], dtype=pl.Int64)})
     return (raw_df,)
 
 
