@@ -16,3 +16,4 @@ repos:
   - repo: wandb/wandb
   - repo: apache/airflow
   - repo: PrefectHQ/prefect
+  - repo: jupyter/notebook

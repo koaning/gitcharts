@@ -19,6 +19,14 @@
     "clean",
     "versioned"
   ],
+  "python-diskcache": [
+    "clean",
+    "versioned"
+  ],
+  "scikit-learn": [
+    "clean",
+    "versioned"
+  ],
   "scikit-lego": [
     "clean",
     "versioned"
