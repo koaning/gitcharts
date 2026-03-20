@@ -11,11 +11,23 @@
     "clean",
     "versioned"
   ],
+  "fastapi": [
+    "clean",
+    "versioned"
+  ],
+  "flask": [
+    "clean",
+    "versioned"
+  ],
   "marimo": [
     "clean",
     "versioned"
   ],
   "narwhals": [
+    "clean",
+    "versioned"
+  ],
+  "notebook": [
     "clean",
     "versioned"
   ],
