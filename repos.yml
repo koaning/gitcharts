@@ -3,6 +3,8 @@ repos:
   - repo: grantjenks/python-diskcache
     pypi_name: diskcache
   - repo: django/django
+  - repo: fastapi/fastapi
+  - repo: pallets/flask
   - repo: marimo-team/marimo
   - repo: narwhals-dev/narwhals
   - repo: koaning/scikit-lego
