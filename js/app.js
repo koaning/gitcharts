@@ -9,8 +9,7 @@ const state = {
 
 // DOM Elements
 let repoSelect;
-let showVersionsCheckbox;
-let versionToggle;
+let showTagsCheckbox;
 let invertCheckbox;
 let chartContainer;
 let granularitySelect;
@@ -19,8 +18,6 @@ let regenerateStatus;
 let dateFrom;
 let dateTo;
 let showDevelopCheckbox;
-let showDevTagsCheckbox;
-let devTagsToggle;
 
 // ========================================
 // URL State Management
@@ -346,7 +343,7 @@ async function updateChart() {
 
     // Merge develop BEFORE transforms so date filters apply to both layers
     if (showDevelopCheckbox.checked) {
-      const devVariant = showDevTagsCheckbox.checked ? "develop-versioned" : "develop-clean";
+      const devVariant = showTagsCheckbox.checked ? "develop-versioned" : "develop-clean";
       try {
         const devSpec = await loadChart(state.currentRepo, devVariant);
         spec = mergeWithDevelop(spec, devSpec);
@@ -378,18 +375,7 @@ function updateDropdown() {
  * Update toggle selection
  */
 function updateToggle() {
-  const variants = state.repos[state.currentRepo] || ["clean"];
-  const hasVersioned = variants.includes("versioned");
-
-  versionToggle.style.display = hasVersioned ? "" : "none";
-
-  if (!hasVersioned && state.currentVariant === "versioned") {
-    state.currentVariant = "clean";
-    showVersionsCheckbox.checked = false;
-    updateURL();
-  }
-
-  showVersionsCheckbox.checked = state.currentVariant === "versioned";
+  showTagsCheckbox.checked = state.currentVariant === "versioned";
 }
 
 /**
@@ -498,8 +484,6 @@ function populateDropdown() {
 async function init() {
   // Get DOM elements
   repoSelect = document.getElementById("repo-select");
-  showVersionsCheckbox = document.getElementById("show-versions");
-  versionToggle = document.getElementById("version-toggle");
   invertCheckbox = document.getElementById("invert-layers");
   chartContainer = document.getElementById("chart-container");
   granularitySelect = document.getElementById("granularity-select");
@@ -508,8 +492,7 @@ async function init() {
   dateFrom = document.getElementById("date-from");
   dateTo = document.getElementById("date-to");
   showDevelopCheckbox = document.getElementById("show-develop");
-  showDevTagsCheckbox = document.getElementById("show-dev-tags");
-  devTagsToggle = document.getElementById("dev-tags-toggle");
+  showTagsCheckbox = document.getElementById("show-tags");
 
   // Load repositories list
   state.repos = await loadRepos();
@@ -534,19 +517,12 @@ async function init() {
 
   // Set up event listeners
   repoSelect.addEventListener("change", onRepoChange);
-  showVersionsCheckbox.addEventListener("change", onVariantChange);
+  showTagsCheckbox.addEventListener("change", onVariantChange);
   invertCheckbox.addEventListener("change", onInvertChange);
   regenerateBtn.addEventListener("click", onRegenerate);
   dateFrom.addEventListener("change", updateChart);
   dateTo.addEventListener("change", updateChart);
-  showDevelopCheckbox.addEventListener("change", () => {
-    devTagsToggle.style.display = showDevelopCheckbox.checked ? "" : "none";
-    if (!showDevelopCheckbox.checked) {
-      showDevTagsCheckbox.checked = false;
-    }
-    updateChart();
-  });
-  showDevTagsCheckbox.addEventListener("change", updateChart);
+  showDevelopCheckbox.addEventListener("change", updateChart);
   document.getElementById("reset-dates-btn").addEventListener("click", () => {
     dateFrom.value = "";
     dateTo.value = "";
