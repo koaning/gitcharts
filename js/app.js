@@ -13,6 +13,9 @@ let showVersionsCheckbox;
 let versionToggle;
 let invertCheckbox;
 let chartContainer;
+let granularitySelect;
+let regenerateBtn;
+let regenerateStatus;
 
 // ========================================
 // URL State Management
@@ -82,7 +85,7 @@ async function loadChart(repo, variant) {
   }
 
   try {
-    const response = await fetch(`charts/${repo}-${variant}.json`);
+    const response = await fetch(`charts/${repo}-${variant}.json?t=${Date.now()}`);
 
     if (!response.ok) {
       throw new Error(`Chart not found: ${response.status}`);
@@ -324,6 +327,9 @@ async function init() {
   versionToggle = document.getElementById("version-toggle");
   invertCheckbox = document.getElementById("invert-layers");
   chartContainer = document.getElementById("chart-container");
+  granularitySelect = document.getElementById("granularity-select");
+  regenerateBtn = document.getElementById("regenerate-btn");
+  regenerateStatus = document.getElementById("regenerate-status");
 
   // Load repositories list
   state.repos = await loadRepos();
@@ -339,14 +345,189 @@ async function init() {
   // Update UI to reflect initial state
   updateUI();
 
+  // Settings modal
+  settingsModal = new bootstrap.Modal(document.getElementById("settings-modal"));
+  document.getElementById("settings-btn").addEventListener("click", openSettings);
+  document.getElementById("add-repo-btn").addEventListener("click", addRepoCard);
+  document.getElementById("save-config-btn").addEventListener("click", saveConfig);
+  document.getElementById("config-editor").addEventListener("click", onEditorClick);
+
   // Set up event listeners
   repoSelect.addEventListener("change", onRepoChange);
   showVersionsCheckbox.addEventListener("change", onVariantChange);
   invertCheckbox.addEventListener("change", onInvertChange);
+  regenerateBtn.addEventListener("click", onRegenerate);
   window.addEventListener("popstate", onPopState);
 
   // Load and render initial chart
   await updateChart();
+}
+
+// ========================================
+// Regeneration
+// ========================================
+
+async function onRegenerate() {
+  const granularity = granularitySelect.value;
+  const repo = state.currentRepo;
+  regenerateBtn.disabled = true;
+  regenerateStatus.textContent = `Generating ${repo}...`;
+
+  try {
+    const res = await fetch("/api/regenerate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ granularity, repo }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      regenerateStatus.textContent = data.error;
+      regenerateBtn.disabled = false;
+      return;
+    }
+    pollStatus();
+  } catch (e) {
+    regenerateStatus.textContent = "Error: " + e.message;
+    regenerateBtn.disabled = false;
+  }
+}
+
+async function pollStatus() {
+  try {
+    const res = await fetch("/api/status");
+    const data = await res.json();
+
+    if (data.running) {
+      regenerateStatus.textContent = data.repo
+        ? `Generating ${data.repo}...`
+        : "Starting...";
+      setTimeout(pollStatus, 2000);
+    } else if (data.error) {
+      regenerateStatus.textContent = "Error: " + data.error;
+      regenerateBtn.disabled = false;
+    } else {
+      regenerateStatus.textContent = "Done!";
+      regenerateBtn.disabled = false;
+      // Clear chart cache and force reload from server
+      state.loadedCharts = {};
+      await updateChart();
+      setTimeout(() => { regenerateStatus.textContent = ""; }, 3000);
+    }
+  } catch (e) {
+    regenerateStatus.textContent = "Error polling status";
+    regenerateBtn.disabled = false;
+  }
+}
+
+// ========================================
+// Settings Modal
+// ========================================
+
+let settingsModal;
+
+function createRepoCard(name, config, index) {
+  return `
+    <div class="card mb-3 repo-card" data-index="${index}">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="card-title mb-0">
+            <input type="text" class="form-control form-control-sm d-inline-block" style="width:auto"
+              value="${name}" data-field="name" placeholder="repo-name">
+          </h6>
+          <button class="btn btn-outline-danger btn-sm remove-repo-btn" title="Remove">&times;</button>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">Repository URL</label>
+          <input type="text" class="form-control form-control-sm" value="${config.url}" data-field="url"
+            placeholder="https://github.com/user/repo">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">File extensions</label>
+          <input type="text" class="form-control form-control-sm" value="${config.extensions}" data-field="extensions"
+            placeholder=".ts,.js,.py,...">
+        </div>
+        <div>
+          <label class="form-label small mb-1">Max samples</label>
+          <input type="number" class="form-control form-control-sm" style="width:120px"
+            value="${config.samples}" data-field="samples" min="1">
+        </div>
+      </div>
+    </div>`;
+}
+
+async function openSettings() {
+  const editor = document.getElementById("config-editor");
+  const configStatus = document.getElementById("config-status");
+  configStatus.textContent = "Loading...";
+
+  try {
+    const res = await fetch("/api/config");
+    const config = await res.json();
+    const entries = Object.entries(config);
+
+    editor.innerHTML = entries
+      .map(([name, cfg], i) => createRepoCard(name, cfg, i))
+      .join("");
+
+    configStatus.textContent = "";
+  } catch (e) {
+    configStatus.textContent = "Error loading config";
+  }
+
+  settingsModal.show();
+}
+
+function addRepoCard() {
+  const editor = document.getElementById("config-editor");
+  const index = editor.querySelectorAll(".repo-card").length;
+  const defaultExt = ".dart,.swift,.h,.cpp,.cc,.c,.m,.mm,.kts,.kt,.java,.xml,.yaml,.yml,.json,.sql,.mjs,.js,.ts,.tsx,.jsx,.css,.scss,.html,.py,.sh,.bash,.zsh,.rb,.go,.rs,.cs,.csproj,.cshtml,.razor,.r,.lua,.php,.pl,.ex,.exs,.erl,.hs,.scala,.groovy,.gradle,.cmake,.makefile,.dockerfile,.tf,.hcl,.proto,.graphql,.gql,.toml,.ini,.cfg,.conf,.env,.properties,.plist,.entitlements,.pbxproj,.xcconfig,.xcworkspacedata,.storyboard,.xib,.nib,.md,.rst,.txt,.svg,.prisma,.http,.slnx,.sln,.lock";
+  editor.insertAdjacentHTML("beforeend", createRepoCard("", { url: "", extensions: defaultExt, samples: 9999 }, index));
+}
+
+async function saveConfig() {
+  const configStatus = document.getElementById("config-status");
+  const cards = document.querySelectorAll(".repo-card");
+  const config = {};
+
+  for (const card of cards) {
+    const name = card.querySelector('[data-field="name"]').value.trim();
+    const url = card.querySelector('[data-field="url"]').value.trim();
+    const extensions = card.querySelector('[data-field="extensions"]').value.trim();
+    const samples = parseInt(card.querySelector('[data-field="samples"]').value) || 9999;
+
+    if (!name || !url) continue;
+    config[name] = { url, extensions, samples };
+  }
+
+  configStatus.textContent = "Saving...";
+
+  try {
+    const res = await fetch("/api/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    const data = await res.json();
+    if (data.saved) {
+      configStatus.textContent = "Saved!";
+      // Reload repos list and dropdown
+      state.repos = await loadRepos();
+      populateDropdown();
+      const { repo, variant } = parseURL();
+      state.currentRepo = repo;
+      state.currentVariant = variant;
+      updateUI();
+      setTimeout(() => settingsModal.hide(), 1000);
+    }
+  } catch (e) {
+    configStatus.textContent = "Error saving: " + e.message;
+  }
+}
+
+function onEditorClick(e) {
+  if (e.target.classList.contains("remove-repo-btn")) {
+    e.target.closest(".repo-card").remove();
+  }
 }
 
 // Start the application when DOM is ready

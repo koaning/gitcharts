@@ -96,7 +96,7 @@ def _(mo):
 @app.cell
 def _(mo):
     granularity_select = mo.ui.dropdown(
-        options=["Year", "Quarter"],
+        options=["Year", "Quarter", "Month", "Week", "Day"],
         value="Quarter",
         label="Time granularity",
     )
@@ -133,6 +133,9 @@ def _():
         )
         pypi_name: str = Field(
             default="", description="PyPI package name (defaults to repo name)"
+        )
+        granularity: str = Field(
+            default="Quarter", description="Time granularity: Year, Quarter, Month, Week, or Day"
         )
 
     return (RepoParams,)
@@ -458,19 +461,39 @@ def _(mo):
 
 
 @app.cell
-def _(granularity_select, pl, raw_df):
-    granularity = granularity_select.value
+def _(granularity_select, mo, pl, raw_df, repo_params):
+    granularity = repo_params.granularity if mo.app_meta().mode == "script" else granularity_select.value
 
     # Vectorized period derivation using native Polars dt ops
     ts_col = pl.from_epoch(pl.col("line_timestamp"), time_unit="s")
 
     if granularity == "Year":
         period_expr = ts_col.dt.year().cast(pl.Utf8).alias("period")
-    else:  # Quarter
+    elif granularity == "Quarter":
         period_expr = pl.concat_str(
             ts_col.dt.year().cast(pl.Utf8),
             pl.lit("-Q"),
             ((ts_col.dt.month() - 1) // 3 + 1).cast(pl.Utf8),
+        ).alias("period")
+    elif granularity == "Month":
+        period_expr = pl.concat_str(
+            ts_col.dt.year().cast(pl.Utf8),
+            pl.lit("-"),
+            ts_col.dt.month().cast(pl.Utf8).str.zfill(2),
+        ).alias("period")
+    elif granularity == "Week":
+        period_expr = pl.concat_str(
+            ts_col.dt.year().cast(pl.Utf8),
+            pl.lit("-W"),
+            ts_col.dt.week().cast(pl.Utf8).str.zfill(2),
+        ).alias("period")
+    else:  # Day
+        period_expr = pl.concat_str(
+            ts_col.dt.year().cast(pl.Utf8),
+            pl.lit("-"),
+            ts_col.dt.month().cast(pl.Utf8).str.zfill(2),
+            pl.lit("-"),
+            ts_col.dt.day().cast(pl.Utf8).str.zfill(2),
         ).alias("period")
 
     df = (
@@ -582,9 +605,19 @@ def _(
     df,
     granularity_select,
     invert_layers,
+    mo,
+    repo_params,
     show_versions,
 ):
-    color_title = "Year Added" if granularity_select.value == "Year" else "Quarter Added"
+    granularity_labels = {
+        "Year": "Year Added",
+        "Quarter": "Quarter Added",
+        "Month": "Month Added",
+        "Week": "Week Added",
+        "Day": "Day Added",
+    }
+    _gran = repo_params.granularity if mo.app_meta().mode == "script" else granularity_select.value
+    color_title = granularity_labels.get(_gran, "Period Added")
     sort_order = "descending" if invert_layers.value else "ascending"
 
     chart = (
