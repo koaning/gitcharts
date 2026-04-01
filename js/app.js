@@ -271,7 +271,6 @@ function mergeWithDevelop(mainSpec, devSpec) {
         field: "period",
         type: "ordinal",
         scale: { scheme: "viridis" },
-        legend: null,
       },
       order: { field: "period", sort: "ascending" },
     },
