@@ -137,6 +137,12 @@ def _():
         granularity: str = Field(
             default="Quarter", description="Time granularity: Year, Quarter, Month, Week, or Day"
         )
+        branch: str = Field(
+            default="", description="Branch to analyze (default: repo default branch)"
+        )
+        branch_label: str = Field(
+            default="", description="Label for output file (default: same as branch)"
+        )
 
     return (RepoParams,)
 
@@ -178,9 +184,14 @@ def _(subprocess):
         repo_path = get_cached_repo_path(repo_url)
 
         if repo_path.exists():
-            # Repo already cached, fetch latest
+            # Repo already cached, fetch latest and update working tree
             subprocess.run(
                 ["git", "fetch", "--all"],
+                cwd=repo_path,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "reset", "--hard", "origin/HEAD"],
                 cwd=repo_path,
                 capture_output=True,
             )
@@ -223,10 +234,10 @@ def _(Path, cache, datetime, hashlib, pl, subprocess):
 
 
     @cache.memoize()
-    def get_commit_list(repo_path: str) -> list[tuple[str, datetime]]:
+    def get_commit_list(repo_path: str, ref: str = "HEAD") -> list[tuple[str, datetime]]:
         """Get list of all commits with their dates."""
         output = run_git_command(
-            ["git", "log", "--format=%H %at", "--reverse"],
+            ["git", "log", "--format=%H %at", "--reverse", ref],
             repo_path,
         )
         commits = []
@@ -405,6 +416,20 @@ def _(
     with mo.status.spinner(f"Cloning/updating repository..."):
         repo_path = clone_or_update_repo(repo_url)
 
+    # Checkout specific branch if requested
+    _branch = repo_params.branch if mo.app_meta().mode == "script" else ""
+    if _branch:
+        subprocess.run(
+            ["git", "checkout", _branch],
+            cwd=repo_path,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "reset", "--hard", f"origin/{_branch}"],
+            cwd=repo_path,
+            capture_output=True,
+        )
+
     # Parse configuration
     n_samples = (
         repo_params.samples if mo.app_meta().mode == "script" else params_form.value["sample_count"]
@@ -417,9 +442,10 @@ def _(
     extensions_str = extensions_str.strip()
     extensions = [ext.strip() for ext in extensions_str.split(",")] if extensions_str else None
 
-    # Get commits
+    # Get commits — pass branch ref so the cache key differs per branch
+    _ref = f"origin/{_branch}" if _branch else "HEAD"
     with mo.status.spinner("Getting commit history..."):
-        all_commits = get_commit_list(str(repo_path))
+        all_commits = get_commit_list(str(repo_path), _ref)
         sampled = sample_commits(all_commits, n_samples)
 
     mo.md(f"Found **{len(all_commits)}** commits, sampling **{len(sampled)}** for analysis")
@@ -525,21 +551,22 @@ def _(
     source = repo_params.version_source if mo.app_meta().mode == "script" else version_source.value
     version_rows = []
 
+    _tag_ref = f"origin/{repo_params.branch}" if (mo.app_meta().mode == "script" and repo_params.branch) else "HEAD"
     if source == "git tags":
         result = subprocess.run(
             [
                 "git",
-                "for-each-ref",
+                "tag",
+                "--merged", _tag_ref,
                 "--sort=creatordate",
                 "--format=%(refname:short)|%(creatordate:unix)",
-                "refs/tags",
             ],
             cwd=repo_path,
             capture_output=True,
             text=True,
             encoding="utf-8",
         )
-        VERSION_RE = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.0$")
+        VERSION_RE = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.\d+.*$")
         for line in result.stdout.strip().split("\n"):
             if line and VERSION_RE.match(line.split("|")[0]):
                 tag, ts = line.split("|", 1)
@@ -651,13 +678,16 @@ def _(
 
 
 @app.cell
-def _(Path, alt, chart, date_lines, date_text, out, repo_name):
+def _(Path, alt, chart, date_lines, date_text, mo, out, repo_name, repo_params):
     Path("charts").mkdir(exist_ok=True)
 
-    clean_path = Path("charts") / (repo_name + "-clean.json")
+    _branch_label = (repo_params.branch_label or repo_params.branch) if mo.app_meta().mode == "script" else ""
+    suffix = f"-{_branch_label}" if _branch_label else ""
+
+    clean_path = Path("charts") / (repo_name + suffix + "-clean.json")
     clean_path.write_text(out.to_json())
 
-    versioned_path = Path("charts") / (repo_name + "-versioned.json")
+    versioned_path = Path("charts") / (repo_name + suffix + "-versioned.json")
     if date_lines is not None:
         versioned_chart = (
             (chart + date_lines + date_text)

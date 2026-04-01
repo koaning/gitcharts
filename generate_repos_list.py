@@ -13,19 +13,23 @@ def main():
         return
 
     # Find all -clean.json files to get unique repo names
+    # Exclude develop branch files (e.g. repo-develop-clean.json)
     clean_files = list(charts_dir.glob("*-clean.json"))
 
     repos = {}
     for file in clean_files:
-        # Extract repo name (everything before -clean.json)
-        repo_name = file.stem.replace("-clean", "")
+        name = file.stem.replace("-clean", "")
+        # Skip develop/dev/development branch files
+        if name.endswith(("-develop", "-development", "-dev")):
+            continue
+
         variants = ["clean"]
 
-        versioned_file = charts_dir / f"{repo_name}-versioned.json"
+        versioned_file = charts_dir / f"{name}-versioned.json"
         if versioned_file.exists():
             variants.append("versioned")
 
-        repos[repo_name] = variants
+        repos[name] = variants
 
     # Sort by name for consistency
     repos = dict(sorted(repos.items()))

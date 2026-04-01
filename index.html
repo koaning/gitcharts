@@ -20,7 +20,7 @@
                     <label for="repo-select" class="col-form-label">Repository:</label>
                 </div>
                 <div class="col-auto">
-                    <select id="repo-select" name="repository" class="form-select">
+                    <select data-testid="repo-select" id="repo-select" name="repository" class="form-select">
                         <!-- Populated by JavaScript -->
                     </select>
                 </div>
@@ -28,7 +28,7 @@
                     <label for="granularity-select" class="col-form-label">Granularity:</label>
                 </div>
                 <div class="col-auto">
-                    <select id="granularity-select" class="form-select">
+                    <select data-testid="granularity-select" id="granularity-select" class="form-select">
                         <option value="Day">Day</option>
                         <option value="Week" selected>Week</option>
                         <option value="Month">Month</option>
@@ -36,27 +36,57 @@
                         <option value="Year">Year</option>
                     </select>
                 </div>
-                <div class="col-auto" id="version-toggle" style="display: none;">
+                <div class="col-auto" id="version-toggle">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="show-versions">
-                        <label class="form-check-label" for="show-versions">Show versions</label>
+                        <input data-testid="show-versions" class="form-check-input" type="checkbox" id="show-versions">
+                        <label class="form-check-label" for="show-versions">Main tags</label>
                     </div>
                 </div>
                 <div class="col-auto">
                     <div class="form-check">
-                        <input type="checkbox" class="form-check-input" id="invert-layers" autocomplete="off">
+                        <input data-testid="show-develop" class="form-check-input" type="checkbox" id="show-develop">
+                        <label class="form-check-label" for="show-develop">Show develop</label>
+                    </div>
+                </div>
+                <div class="col-auto" id="dev-tags-toggle" style="display: none;">
+                    <div class="form-check">
+                        <input data-testid="show-dev-tags" class="form-check-input" type="checkbox" id="show-dev-tags">
+                        <label class="form-check-label" for="show-dev-tags">Dev tags</label>
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <div class="form-check">
+                        <input data-testid="invert-layers" type="checkbox" class="form-check-input" id="invert-layers" autocomplete="off">
                         <label class="form-check-label" for="invert-layers">Invert layers</label>
                     </div>
                 </div>
                 <div class="col-auto ms-auto">
-                    <button id="regenerate-btn" class="btn btn-primary btn-sm">
+                    <button data-testid="regenerate-btn" id="regenerate-btn" class="btn btn-primary btn-sm">
                         Regenerate
                     </button>
-                    <span id="regenerate-status" class="ms-2 text-muted small"></span>
+                    <span data-testid="regenerate-status" id="regenerate-status" class="ms-2 text-muted small"></span>
                 </div>
             </div>
 
-            <div id="chart-container" class="border rounded p-3 bg-white" role="main" aria-live="polite">
+            <div class="row g-3 mb-4 align-items-center">
+                <div class="col-auto">
+                    <label for="date-from" class="col-form-label">From:</label>
+                </div>
+                <div class="col-auto">
+                    <input data-testid="date-from" type="date" id="date-from" class="form-control form-control-sm">
+                </div>
+                <div class="col-auto">
+                    <label for="date-to" class="col-form-label">To:</label>
+                </div>
+                <div class="col-auto">
+                    <input data-testid="date-to" type="date" id="date-to" class="form-control form-control-sm">
+                </div>
+                <div class="col-auto">
+                    <button data-testid="reset-dates" id="reset-dates-btn" class="btn btn-outline-secondary btn-sm">Reset</button>
+                </div>
+            </div>
+
+            <div data-testid="chart-container" id="chart-container" class="border rounded p-3 bg-white" role="main" aria-live="polite">
                 <!-- Chart will be rendered here by JavaScript -->
             </div>
         </main>
@@ -67,7 +97,7 @@
                 <a href="https://github.com/koaning/gitcharts" target="_blank" rel="noopener">git_archaeology.py</a>
                 | Showing stacked area charts of code age distribution over repository history
             </p>
-            <button id="settings-btn" class="btn btn-outline-secondary btn-sm">Settings</button>
+            <button data-testid="settings-btn" id="settings-btn" class="btn btn-outline-secondary btn-sm">Settings</button>
         </footer>
 
     <!-- Settings Modal -->
@@ -79,13 +109,13 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <div id="config-editor"></div>
-            <button id="add-repo-btn" class="btn btn-outline-success btn-sm mt-3">+ Add repository</button>
+            <div data-testid="config-editor" id="config-editor"></div>
+            <button data-testid="add-repo-btn" id="add-repo-btn" class="btn btn-outline-success btn-sm mt-3">+ Add repository</button>
           </div>
           <div class="modal-footer">
-            <span id="config-status" class="text-muted small me-auto"></span>
+            <span data-testid="config-status" id="config-status" class="text-muted small me-auto"></span>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button id="save-config-btn" class="btn btn-primary">Save</button>
+            <button data-testid="save-config-btn" id="save-config-btn" class="btn btn-primary">Save</button>
           </div>
         </div>
       </div>

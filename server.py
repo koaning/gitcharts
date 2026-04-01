@@ -13,8 +13,8 @@ SCRIPT_PATH = Path("git_archaeology.py")
 status = {"running": False, "repo": None, "progress": "", "error": None}
 
 
-def regenerate_repo(repo_name, config, granularity):
-    """Run git_archaeology.py for a single repo."""
+def regenerate_repo(repo_name, config, granularity, branch="", save_as=""):
+    """Run git_archaeology.py for a single repo/branch."""
     cmd = [
         "uv", "run", str(SCRIPT_PATH),
         "--repo", config["url"],
@@ -22,15 +22,37 @@ def regenerate_repo(repo_name, config, granularity):
         "--file-extensions", config["extensions"],
         "--granularity", granularity,
     ]
+    if branch:
+        cmd += ["--branch", branch]
+        if save_as and save_as != branch:
+            cmd += ["--branch-label", save_as]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(result.stderr or result.stdout)
 
 
+def get_develop_branch(config):
+    """Find the develop branch (develop, development, dev) for this repo."""
+    import re
+    result = subprocess.run(
+        ["git", "ls-remote", "--heads", config["url"]],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        return None
+    # Extract branch names from refs/heads/...
+    branches = re.findall(r"refs/heads/(\S+)", result.stdout)
+    # Priority order: develop > development > dev
+    for candidate in ("develop", "development", "dev"):
+        if candidate in branches:
+            return candidate
+    return None
+
+
 def regenerate_single(repo_name, granularity):
-    """Regenerate a single repo in background."""
+    """Regenerate a single repo (main + develop if exists) in background."""
     global status
-    status = {"running": True, "repo": repo_name, "progress": "1/1", "error": None}
+    status = {"running": True, "repo": repo_name, "progress": "", "error": None}
 
     try:
         with open(CONFIG_PATH) as f:
@@ -39,7 +61,17 @@ def regenerate_single(repo_name, granularity):
         if repo_name not in repos:
             raise RuntimeError(f"Unknown repo: {repo_name}")
 
-        regenerate_repo(repo_name, repos[repo_name], granularity)
+        config = repos[repo_name]
+
+        # Main branch
+        status["progress"] = "main"
+        regenerate_repo(repo_name, config, granularity)
+
+        # Develop branch if exists — always save as "develop" regardless of actual name
+        dev_branch = get_develop_branch(config)
+        if dev_branch:
+            status["progress"] = "develop"
+            regenerate_repo(repo_name, config, granularity, branch=dev_branch, save_as="develop")
 
         subprocess.run(
             ["uv", "run", "python", "generate_repos_list.py"],
@@ -64,8 +96,13 @@ def regenerate_all(granularity):
         total = len(repos)
         for i, (name, config) in enumerate(repos.items(), 1):
             status["repo"] = name
-            status["progress"] = f"{i}/{total}"
+            status["progress"] = f"{i}/{total} main"
             regenerate_repo(name, config, granularity)
+
+            dev_branch = get_develop_branch(config)
+            if dev_branch:
+                status["progress"] = f"{i}/{total} develop"
+                regenerate_repo(name, config, granularity, branch=dev_branch, save_as="develop")
 
         subprocess.run(
             ["uv", "run", "python", "generate_repos_list.py"],
@@ -131,6 +168,12 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", len(body))
         self.end_headers()
         self.wfile.write(body)
+
+    def end_headers(self):
+        # Prevent caching of JS/HTML files during development
+        if self.path.endswith(('.js', '.html')) or self.path == '/':
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        super().end_headers()
 
     def log_message(self, format, *args):
         pass  # Silence request logs

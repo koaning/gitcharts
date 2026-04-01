@@ -16,6 +16,11 @@ let chartContainer;
 let granularitySelect;
 let regenerateBtn;
 let regenerateStatus;
+let dateFrom;
+let dateTo;
+let showDevelopCheckbox;
+let showDevTagsCheckbox;
+let devTagsToggle;
 
 // ========================================
 // URL State Management
@@ -109,12 +114,52 @@ async function loadChart(repo, variant) {
 /**
  * Apply invert layers transformation to a spec (deep clone to avoid mutating cache)
  */
-function applyInvert(spec) {
+function applyTransforms(spec) {
   const copy = JSON.parse(JSON.stringify(spec));
-  const encoding = copy.encoding || (copy.layer && copy.layer[0] && copy.layer[0].encoding);
-  if (encoding && encoding.order) {
-    encoding.order.sort = state.invertLayers ? "descending" : "ascending";
+
+  // Collect all encodings (top-level or per-layer)
+  const encodings = [];
+  if (copy.encoding) encodings.push(copy.encoding);
+  if (copy.layer) copy.layer.forEach(l => { if (l.encoding) encodings.push(l.encoding); });
+
+  // Invert layers — apply to ALL encodings
+  const sortOrder = state.invertLayers ? "descending" : "ascending";
+  encodings.forEach(enc => {
+    if (enc.order) enc.order.sort = sortOrder;
+  });
+
+  // Date range filter — filter inline data values directly
+  const from = dateFrom.value;
+  const to = dateTo.value;
+  if (from || to) {
+    const filterData = (values) => {
+      return values.filter(d => {
+        // Support both commit_date (chart data) and datetime (tag data)
+        const date = d.commit_date || d.datetime;
+        if (!date) return true;
+        if (from && date < from) return false;
+        if (to && date > to + "T23:59:59") return false;
+        return true;
+      });
+    };
+
+    // Filter inline data (values arrays) in each layer or top-level
+    if (copy.layer) {
+      copy.layer.forEach(l => {
+        if (l.data?.values) {
+          l.data.values = filterData(l.data.values);
+        }
+      });
+    }
+
+    // Filter datasets (named data)
+    if (copy.datasets) {
+      for (const key of Object.keys(copy.datasets)) {
+        copy.datasets[key] = filterData(copy.datasets[key]);
+      }
+    }
   }
+
   return copy;
 }
 
@@ -177,12 +222,131 @@ function showError(repo, variant) {
 /**
  * Load and render chart for current state
  */
+/**
+ * Load develop branch chart if available
+ */
+async function loadDevelopChart(repo, variant) {
+  const devVariant = variant === "versioned" ? "develop-versioned" : "develop-clean";
+  try {
+    return await loadChart(repo, devVariant);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge develop data as a transparent continuation after main.
+ * Only shows develop commits that are NEWER than the last main commit
+ * (i.e. unreleased work on develop not yet merged to main).
+ */
+function mergeWithDevelop(mainSpec, devSpec) {
+  const main = JSON.parse(JSON.stringify(mainSpec));
+  const dev = JSON.parse(JSON.stringify(devSpec));
+
+  // Extract data key — handle both flat specs (data.name) and layered specs (layer[0].data.name)
+  const mainDataKey = main.data?.name || (main.layer?.[0]?.data?.name);
+  const devDataKey = dev.data?.name || (dev.layer?.[0]?.data?.name);
+  if (!devDataKey || !dev.datasets?.[devDataKey]) return main;
+
+  const mainData = main.datasets?.[mainDataKey] || [];
+  const devData = dev.datasets[devDataKey] || [];
+
+  // Find the latest commit_date in main
+  const mainDates = mainData.map(d => d.commit_date);
+  const lastMainDate = mainDates.sort().pop();
+  if (!lastMainDate) return main;
+
+  // Filter develop data to only commits AFTER the last main commit
+  const devDelta = devData.filter(d => d.commit_date > lastMainDate);
+  if (devDelta.length === 0) return main;
+
+  // Dev delta layer — same viridis scheme + field as main, distinguished by opacity
+  const devLayer = {
+    data: { values: devDelta },
+    mark: { type: "area", opacity: 0.5 },
+    encoding: {
+      x: { field: "commit_date", type: "temporal" },
+      y: { field: "line_count", type: "quantitative" },
+      color: {
+        field: "period",
+        type: "ordinal",
+        scale: { scheme: "viridis" },
+        legend: null,
+      },
+      order: { field: "period", sort: "ascending" },
+    },
+  };
+
+  // Build main layers — handle both flat spec (mark+encoding) and layered spec (versioned)
+  const layers = [];
+  if (main.layer) {
+    // Main is already layered (versioned) — include all its layers with inline data
+    main.layer.forEach(l => {
+      const copy = JSON.parse(JSON.stringify(l));
+      // Replace named data references with inline values for the area layer
+      const markType = typeof copy.mark === "string" ? copy.mark : copy.mark?.type;
+      if (markType === "area" && mainDataKey) {
+        copy.data = { values: mainData };
+      }
+      layers.push(copy);
+    });
+  } else {
+    layers.push({
+      data: { values: mainData },
+      mark: main.mark,
+      encoding: main.encoding,
+    });
+  }
+
+  // Add dev layer after main layers
+  layers.push(devLayer);
+
+  // Collect all datasets needed (main + dev)
+  const allDatasets = { ...(main.datasets || {}) };
+
+  // If dev spec is a layered chart (versioned), extract tag lines (rule + text layers)
+  if (dev.layer && dev.layer.length > 1) {
+    // Copy dev datasets so tag layers can reference them
+    Object.assign(allDatasets, dev.datasets || {});
+    dev.layer.forEach(l => {
+      const markType = typeof l.mark === "string" ? l.mark : l.mark?.type;
+      if (markType === "rule" || markType === "text") {
+        layers.push(l);
+      }
+    });
+  }
+
+  return {
+    $schema: main.$schema,
+    config: main.config,
+    datasets: allDatasets,
+    title: main.title,
+    width: main.width,
+    height: main.height,
+    layer: layers,
+  };
+}
+
 async function updateChart() {
   showLoading();
 
   try {
-    const spec = await loadChart(state.currentRepo, state.currentVariant);
-    await renderChart(applyInvert(spec));
+    let spec = await loadChart(state.currentRepo, state.currentVariant);
+
+    // Merge develop BEFORE transforms so date filters apply to both layers
+    if (showDevelopCheckbox.checked) {
+      const devVariant = showDevTagsCheckbox.checked ? "develop-versioned" : "develop-clean";
+      try {
+        const devSpec = await loadChart(state.currentRepo, devVariant);
+        spec = mergeWithDevelop(spec, devSpec);
+      } catch {
+        // Develop chart not available — silently ignore
+      }
+    }
+
+    // Apply transforms (invert, date filter) AFTER merge
+    spec = applyTransforms(spec);
+    await renderChart(spec);
   } catch (error) {
     showError(state.currentRepo, state.currentVariant);
   }
@@ -330,6 +494,11 @@ async function init() {
   granularitySelect = document.getElementById("granularity-select");
   regenerateBtn = document.getElementById("regenerate-btn");
   regenerateStatus = document.getElementById("regenerate-status");
+  dateFrom = document.getElementById("date-from");
+  dateTo = document.getElementById("date-to");
+  showDevelopCheckbox = document.getElementById("show-develop");
+  showDevTagsCheckbox = document.getElementById("show-dev-tags");
+  devTagsToggle = document.getElementById("dev-tags-toggle");
 
   // Load repositories list
   state.repos = await loadRepos();
@@ -357,6 +526,21 @@ async function init() {
   showVersionsCheckbox.addEventListener("change", onVariantChange);
   invertCheckbox.addEventListener("change", onInvertChange);
   regenerateBtn.addEventListener("click", onRegenerate);
+  dateFrom.addEventListener("change", updateChart);
+  dateTo.addEventListener("change", updateChart);
+  showDevelopCheckbox.addEventListener("change", () => {
+    devTagsToggle.style.display = showDevelopCheckbox.checked ? "" : "none";
+    if (!showDevelopCheckbox.checked) {
+      showDevTagsCheckbox.checked = false;
+    }
+    updateChart();
+  });
+  showDevTagsCheckbox.addEventListener("change", updateChart);
+  document.getElementById("reset-dates-btn").addEventListener("click", () => {
+    dateFrom.value = "";
+    dateTo.value = "";
+    updateChart();
+  });
   window.addEventListener("popstate", onPopState);
 
   // Load and render initial chart
