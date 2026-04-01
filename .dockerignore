@@ -1,0 +1,7 @@
+.git
+.downloads
+.agents
+.claude
+git-research
+__pycache__
+*.pyc
