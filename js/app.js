@@ -263,7 +263,7 @@ function mergeWithDevelop(mainSpec, devSpec) {
   // Dev delta layer — same viridis scheme + field as main, distinguished by opacity
   const devLayer = {
     data: { values: devDelta },
-    mark: { type: "area", opacity: 0.5 },
+    mark: { type: "area", opacity: 0.4 },
     encoding: {
       x: { field: "commit_date", type: "temporal" },
       y: { field: "line_count", type: "quantitative" },
@@ -277,22 +277,25 @@ function mergeWithDevelop(mainSpec, devSpec) {
   };
 
   // Build main layers — handle both flat spec (mark+encoding) and layered spec (versioned)
+  // Force opacity: 1 on main area to contrast with semi-transparent develop
   const layers = [];
   if (main.layer) {
-    // Main is already layered (versioned) — include all its layers with inline data
     main.layer.forEach(l => {
       const copy = JSON.parse(JSON.stringify(l));
-      // Replace named data references with inline values for the area layer
       const markType = typeof copy.mark === "string" ? copy.mark : copy.mark?.type;
-      if (markType === "area" && mainDataKey) {
-        copy.data = { values: mainData };
+      if (markType === "area") {
+        if (typeof copy.mark === "string") copy.mark = { type: "area" };
+        copy.mark.opacity = 1;
+        if (mainDataKey) copy.data = { values: mainData };
       }
       layers.push(copy);
     });
   } else {
+    const mainMark = typeof main.mark === "string" ? { type: main.mark } : { ...main.mark };
+    mainMark.opacity = 1;
     layers.push({
       data: { values: mainData },
-      mark: main.mark,
+      mark: mainMark,
       encoding: main.encoding,
     });
   }
